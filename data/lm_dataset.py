@@ -7,11 +7,11 @@ from typing import List, NamedTuple, Optional, Generator, TextIO
 
 
 class BERTSentenceBatch(NamedTuple):
-    tokens: np.array
-    targets: np.array
-    is_next: np.array
-    segment_ids: np.array
-    masks: np.array
+    tokens: np.array  # batch_size, seq (token_id)
+    targets: np.array  # batch_size, seq (zeros should be ignored)
+    is_next: np.array  # batch_size (0 or 1)
+    segment_ids: np.array  # batch_size, seq (0 or 1)
+    masks: np.array  # batch_size, seq (0 or 1, ones should be ignored)
 
 
 def lm_generator(text_corpus_address: str, spm_model_name: str = 'spm', keep_prob: float = 0.85, mask_prob: float = 0.8,
@@ -88,7 +88,7 @@ def _pad(bert_sent: _BERTSentence, max_len: int):
     return _BERTSentence(_MaskedSentence([pad_id] * pad_size + bert_sent.sentence.sentence,
                                          [pad_id] * pad_size + bert_sent.sentence.target),
                          bert_sent.is_next, [pad_id] * pad_size + bert_sent.segment_id,
-                         [False] * pad_size + [True] * (max_len - pad_size))
+                         [True] * pad_size + [False] * (max_len - pad_size))
 
 
 def _create_batch(batch: List[_BERTSentence], max_len: Optional[int]):
