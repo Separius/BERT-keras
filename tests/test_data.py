@@ -34,7 +34,7 @@ class TestData(TestCase):
             assert not padded_sent.mask[i]
             assert padded_sent.segment_id[i] == bert_sent.segment_id[i]
             assert padded_sent.sentence.lm_target[i] == bert_sent.sentence.lm_target[i]
-            assert padded_sent.sentence.sentence[i] == bert_sent.sentence.sentence[i]
+            assert padded_sent.sentence.sentence[i] == bert_sent.sentence.tokens[i]
         for i in range(5, 10):
             assert padded_sent.mask[i]
             assert padded_sent.segment_id[i] == pad_id
@@ -71,31 +71,31 @@ class TestData(TestCase):
 
         masked_sentence = _mask_sentence(sentence, vocab_size=self.vocab_size, keep_prob=1.0, mask_prob=0.0,
                                          rand_prob=0.0)
-        assert len(sentence) == len(masked_sentence.sentence) == len(masked_sentence.lm_target)
+        assert len(sentence) == len(masked_sentence.tokens) == len(masked_sentence.lm_target)
         for i in range(seq_len):
-            assert masked_sentence.sentence[i] == sentence[i]
+            assert masked_sentence.tokens[i] == sentence[i]
             assert masked_sentence.lm_target[i] == self.vocab_size + TextEncoder.PAD_OFFSET
 
         masked_sentence = _mask_sentence(sentence, vocab_size=self.vocab_size, keep_prob=0.0, mask_prob=1.0,
                                          rand_prob=0.0)
-        assert len(sentence) == len(masked_sentence.sentence) == len(masked_sentence.lm_target)
+        assert len(sentence) == len(masked_sentence.tokens) == len(masked_sentence.lm_target)
         for i in range(seq_len):
-            assert masked_sentence.sentence[i] == self.vocab_size + TextEncoder.MSK_OFFSET
+            assert masked_sentence.tokens[i] == self.vocab_size + TextEncoder.MSK_OFFSET
             assert masked_sentence.lm_target[i] == sentence[i]
 
         masked_sentence = _mask_sentence(sentence, vocab_size=self.vocab_size, keep_prob=0.0, mask_prob=0.0,
                                          rand_prob=0.0)
-        assert len(sentence) == len(masked_sentence.sentence) == len(masked_sentence.lm_target)
+        assert len(sentence) == len(masked_sentence.tokens) == len(masked_sentence.lm_target)
         for i in range(seq_len):
-            assert masked_sentence.sentence[i] == sentence[i]
+            assert masked_sentence.tokens[i] == sentence[i]
             assert masked_sentence.lm_target[i] == sentence[i]
 
         sentence = [index + self.vocab_size for index in sentence]
         masked_sentence = _mask_sentence(sentence, vocab_size=self.vocab_size, keep_prob=0.0, mask_prob=0.0,
                                          rand_prob=1.0)
-        assert len(sentence) == len(masked_sentence.sentence) == len(masked_sentence.lm_target)
+        assert len(sentence) == len(masked_sentence.tokens) == len(masked_sentence.lm_target)
         for i in range(seq_len):
-            assert masked_sentence.sentence[i] != sentence[i]
+            assert masked_sentence.tokens[i] != sentence[i]
             assert masked_sentence.lm_target[i] == sentence[i]
 
     def test_grab_line(self):

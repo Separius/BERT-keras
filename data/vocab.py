@@ -25,7 +25,8 @@ class TextEncoder:
     EOS_OFFSET = 3
     SPECIAL_COUNT = 4
     SGA_OFFSET = 4  # Segment_A
-    SGB_OFFSET = 5  # Segment_A
+    SGB_OFFSET = 5  # Segment_B
+    NUM_SEGMENTS = 2
     POS_START_OFFSET = 6
 
     def __init__(self, vocab_size: int):
@@ -60,7 +61,7 @@ class SentencePieceTextEncoder(TextEncoder):
                 '--input={input} --model_prefix={model_name} --vocab_size={vocab_size} '
                 '--character_coverage={coverage} --model_type={model_type} '
                 '--pad_id=-1 --unk_id=0 --bos_id=-1 --eos_id=-1 --input_sentence_size=100000000 '
-                '--training_sentence_size=100000000 --control_symbols=@@@<MASK>@@@'.format(
+                '--training_sentence_size=100000000'.format(
                     input=text_corpus_address, model_name=model_name, vocab_size=vocab_size, coverage=1,
                     model_type=spm_model_type.lower()))
         self.sp = spm.SentencePieceProcessor()
