@@ -53,32 +53,30 @@ def merge_heads(x):
     return K.reshape(new_x, new_x_shape)
 
 
-def scaled_dot_product_attention(q, k, v, mask, attention_dropout):
+def scaled_dot_product_attention(q, k, v, mask, attention_dropout, layer_id):
     w = K.batch_dot(q, k) / K.sqrt(K.cast(shape_list(v)[-1], K.floatx()))  # w is B, H, L, L
     if mask is not None:
         w = mask * w + (1.0 - mask) * 10e-9
-    w = K.softmax(w)
-    w = Dropout(attention_dropout)(w)
-    a = K.batch_dot(w, v)
-    return a
+    w = Dropout(attention_dropout, name='layer_{}/attention_dropout'.format(layer_id))(K.softmax(w))
+    return K.batch_dot(w, v)
 
 
-def self_attention(x, n_head, n_state, mask):
+def self_attention(x, n_head, n_state, mask, attention_dropout, layer_id):
     _q, _k, _v = x[:, :, :n_state], x[:, :, n_state:2 * n_state], x[:, :, -n_state:]
     q = split_heads(_q, n_head)  # q is B, H, L, C//H
     k = split_heads(_k, n_head, k=True)  # k is B, H, C//H, L
     v = split_heads(_v, n_head)
-    a = scaled_dot_product_attention(q, k, v, mask, 0.1)
+    a = scaled_dot_product_attention(q, k, v, mask, attention_dropout, layer_id)
     return merge_heads(a)
 
 
-def multi_head_attention(x, n_state, n_head, mask, residual_dropout=0.1):  # x is batch, seq_len, channels(n_state)
+def multi_head_attention(x, n_state, n_head, mask, attention_dropout, layer_id):
     assert n_state % n_head == 0
-    x = Conv1D(3 * n_state, 1)(x)  # x will be batch, seq_len, 3*channels
-    a = Lambda(lambda input: self_attention(input, n_head, n_state, mask),
+    x = Conv1D(3 * n_state, 1, name='layer_{}/c_attn'.format(layer_id))(x)  # x will be batch, seq_len, 3*channels
+    a = Lambda(lambda input: self_attention(input, n_head, n_state, mask, attention_dropout, layer_id),
+               name='layer_{}/self_attention'.format(layer_id),
                output_shape=lambda input_shape: [input_shape[0], input_shape[1], input_shape[2] // 3])(x)
-    a = Conv1D(n_state, 1)(a)
-    return Dropout(residual_dropout)(a)
+    return Conv1D(n_state, 1, name='layer_{}/c_attn_proj'.format(layer_id))(a)
 
 
 def gelu(x):
@@ -88,7 +86,7 @@ def gelu(x):
 class LayerNormalization(Layer):
     def __init__(self, eps=1e-6, **kwargs):
         self.eps = eps
-        super(LayerNormalization, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
     def build(self, input_shape):
         self.gamma = self.add_weight(name='gamma', shape=input_shape[-1:],
@@ -97,43 +95,44 @@ class LayerNormalization(Layer):
                                     initializer=keras.initializers.Zeros(), trainable=True)
         super(LayerNormalization, self).build(input_shape)
 
-    def call(self, x):
-        mean = K.mean(x, axis=-1, keepdims=True)
-        std = K.std(x, axis=-1, keepdims=True)
-        return self.gamma * (x - mean) / (std + self.eps) + self.beta
+    def call(self, inputs, **kwargs):
+        mean = K.mean(inputs, axis=-1, keepdims=True)
+        std = K.std(inputs, axis=-1, keepdims=True)
+        return self.gamma * (inputs - mean) / (std + self.eps) + self.beta
 
     def compute_output_shape(self, input_shape):
         return input_shape
 
 
-def position_wise(x, d_hid, dropout=0.1):
-    output = Lambda(lambda x: gelu(Conv1D(d_hid, 1)(x)))(x)
-    output = Conv1D(d_hid, 1)(output)
-    output = Dropout(dropout)(output)
-    output = Add()([output, x])
-    return LayerNormalization()(output)
+def position_wise(x, n_state, d_hid, layer_id: int):
+    output = Conv1D(d_hid, 1, name='layer_{}/c_fc'.format(layer_id))(x)
+    output = Lambda(lambda x: gelu(x), name='layer_{}/gelu'.format(layer_id))(output)
+    return Conv1D(n_state, 1, name='layer_{}/c_ffn_proj'.format(layer_id))(output)
 
 
-def encoder_layer(x, n_state, n_head, mask, dropout=0.1):
-    a = multi_head_attention(x, n_state, n_head, mask, residual_dropout=dropout)
-    return position_wise(a, n_state, dropout=dropout)
+def encoder_layer(x, n_state, n_head, mask, d_hid, residual_dropout, attention_dropout, layer_id: int):
+    a = multi_head_attention(x, n_state, n_head, mask, attention_dropout, layer_id)
+    n = LayerNormalization(name='layer_{}/ln_1'.format(layer_id))(Add(name='layer_{}/ln_1_add'.format(layer_id))(
+        [x, Dropout(residual_dropout, name='layer_{}/ln_1_drop'.format(layer_id))(a)]))
+    f = position_wise(n, n_state, d_hid, layer_id)
+    output = LayerNormalization(name='layer_{}/ln_2'.format(layer_id))(Add(name='layer_{}/ln_2_add'.format(layer_id))(
+        [n, Dropout(residual_dropout, name='layer_{}/ln_2_drop'.format(layer_id))(f)]))
+    return output
 
 
 # TODO use a config for default values
-def create_model(embedding_dim: int, embedding_dropout: float = 0.1, vocab_size: int = 30000, num_segments: int = 2,
-                 max_len: int = 512, trainable_pos_embedding: bool = True, n_head: int = 12, n_layers: int = 12,
-                 transformer_dropout: float = 0.1, use_one_embedding_dropout: bool = True):
-    tokens = Input(shape=(max_len,))
-    segment_ids = Input(shape=(max_len,))
+def create_model(embedding_dim: int, embedding_dropout: float, vocab_size: int, max_len: int,
+                 trainable_pos_embedding: bool, num_heads: int, num_layers: int, attention_dropout: float,
+                 use_one_embedding_dropout: bool, d_hid: int, residual_dropout: float = 0.1, num_segments: int = 2):
     # NOTE mask is created via mask_attn_weights_numpy
-    mask = Input(shape=(1, max_len, max_len))
-    pos_ids = Lambda(lambda length: K.reshape(K.arange(shape_list(tokens)[1]), (1, -1)))(tokens)
-
+    mask = Input(shape=(1, max_len, max_len), name='MaskInput')
+    tokens = Input(shape=(max_len,), name='TokenInput')
+    segment_ids = Input(shape=(max_len,), name='SegmentInput')
+    pos_ids = Lambda(lambda length: K.reshape(K.arange(shape_list(tokens)[1]), (1, -1)), name='PositionInput')(tokens)
     x = Embedding(embedding_dim, embedding_dropout, vocab_size, num_segments, max_len,
                   trainable_pos_embedding, use_one_embedding_dropout)(tokens, segment_ids, pos_ids)
-    for _ in range(n_layers):
-        x = encoder_layer(x, embedding_dim, n_head, mask, dropout=transformer_dropout)
-    return keras.Model(inputs=[tokens, segment_ids, mask], outputs=[x])
+    for i in range(num_layers):
+        x = encoder_layer(x, embedding_dim, num_heads, mask, d_hid, residual_dropout, attention_dropout, i)
+    return keras.Model(inputs=[tokens, segment_ids, mask], outputs=[x], name='Transformer')
 
-
-a = create_model(300, vocab_size=10, max_len=64, trainable_pos_embedding=True, n_head=3, n_layers=3)
+# TODO load, pretrain, test, sentence_level_train, QRNN, release! :D

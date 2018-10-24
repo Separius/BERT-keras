@@ -12,8 +12,11 @@ class OpenAIConfig:
     MAX_LEN = 512
     MIN_LEN = None
     EMBEDDING_DROPOUT = 0.1
-    USE_ONE_EMBEDDING_DROPOUT = True
+    TRANSFORMER_DROPOUT = 0.1
+    USE_ONE_EMBEDDING_DROPOUT = False  # they apply dropout to the concatenated embedding and then lookup
     NUM_LAYERS = 12
+    NUM_HEADS = 12
+    D_HID = 768 * 4
 
 
 class BERTConfig:
