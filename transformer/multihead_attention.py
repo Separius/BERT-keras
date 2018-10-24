@@ -42,12 +42,11 @@ def mask_attn_weights(pad_mask, is_causal, batch_size, length):
 
 
 def _attn(q, k, v, mask, attention_dropout):
-    w = K.batch_dot(q, k)  # w is B, H, L, L
-    n_state = shape_list(v)[-1]  # v is B, H, L, C//H
-    w = w / K.sqrt(K.cast(n_state, K.floatx()))
+    w = keras.layers.Lambda(lambda input: K.batch_dot(q, k) / K.sqrt(K.cast(shape_list(input)[-1], K.floatx())))(
+        v)  # w is B, H, L, L
     if mask is not None:
         w = mask * w + (1.0 - mask) * 10e-9
-    w = K.softmax(w)
+    w = keras.layers.Softmax()(w)
     w = keras.layers.Dropout(attention_dropout)(w)
     a = K.batch_dot(w, v)
     return a
@@ -67,15 +66,17 @@ def neo_attn(x, n_state, n_head, mask, residual_dropout=0.1):  # x is batch, seq
     assert n_state % n_head == 0
     x = keras.layers.Conv1D(3 * n_state, 1)(x)  # x will be batch, seq_len, 3*channels
 
-    def helper(input):
-        q, k, v = input[:, :, :n_state], input[:, :, n_state:2 * n_state], input[:, :, -n_state:]
-        q = split_heads(q, n_head)  # q is B, H, L, C//H
-        k = split_heads(k, n_head, k=True)  # k is B, H, C//H, L
-        v = split_heads(v, n_head)
+    def attn(input):
+        _q, _k, _v = input[:, :, :n_state], input[:, :, n_state:2 * n_state], input[:, :, -n_state:]
+        q = split_heads(_q, n_head)  # q is B, H, L, C//H
+        k = split_heads(_k, n_head, k=True)  # k is B, H, C//H, L
+        v = split_heads(_v, n_head)
         a = _attn(q, k, v, mask, 0.1)
         return merge_heads(a)
 
-    a = keras.layers.Lambda(lambda input: helper(input))(x)
+    a = keras.layers.Lambda(lambda input: attn(input),
+                            output_shape=lambda input_shape: [input_shape[0], input_shape[1], input_shape[2] // 3])
+    a = a(x)
     a = keras.layers.Conv1D(n_state, 1)(a)
     a = keras.layers.Dropout(residual_dropout)(a)
     return a
@@ -131,10 +132,9 @@ def create_model(embedding_dim: int, embedding_dropout: float = 0.1,
     x = Embedding(embedding_dim, embedding_dropout, vocab_size, num_segments, max_len,
                   trainable_pos_embedding, use_one_embedding_dropout)(tokens, segment_ids)
     shape = shape_list(x)
-    mask = keras.layers.Lambda(lambda lambda_in: mask_attn_weights(lambda_in, is_causal, shape[0], shape[1]))(masks)
+    mask = keras.layers.Lambda(lambda input: mask_attn_weights(input, is_causal, shape[0], shape[1]))(masks)
     for _ in range(n_layers):
         x = encoder_layer(x, embedding_dim, n_head, mask, dropout=transformer_dropout)
-    print(K.eval(x))
     return keras.Model(inputs=[tokens, segment_ids, masks], outputs=[x])
 
 
