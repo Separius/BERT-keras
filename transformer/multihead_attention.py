@@ -1,36 +1,100 @@
-# this is from https://github.com/Lsdefine/attention-is-all-you-need-keras
+import math
+import keras
 import numpy as np
 import keras.backend as K
-from keras.initializers import Ones, Zeros
-from keras.layers import Dense, Dropout, Lambda, Add, Activation, Layer, TimeDistributed, Conv1D
+from transformer.embedding import Embedding
 
 
-class ScaledDotProductAttention:
-    def __init__(self, d_model, attn_dropout=0.1):
-        self.temper = np.sqrt(d_model)
-        self.dropout = Dropout(attn_dropout)
-
-    def __call__(self, q, k, v, mask):
-        attn = K.batch_dot(q, k, axes=[2, 2]) / self.temper
-        if mask is not None:
-            attn = Add()([attn, -1e+10 * mask])
-        attn = Activation('softmax')(attn)
-        attn = self.dropout(attn)
-        return K.batch_dot(attn, v), attn
+def shape_list(x):
+    ps = x.get_shape().as_list()
+    ts = K.shape(x)
+    return [ts[i] if ps[i] is None else ps[i] for i in range(len(ps))]
 
 
-class LayerNormalization(Layer):
+def split_states(x, n):
+    x_shape = shape_list(x)
+    m = x_shape[-1]
+    new_x_shape = x_shape[:-1] + [n, m // n]
+    return K.reshape(x, new_x_shape)
+
+
+def split_heads(x, n, k=False):
+    return K.permute_dimensions(split_states(x, n), [0, 2, 3, 1] if k else [0, 2, 1, 3])
+
+
+def mask_attn_weights(pad_mask, is_causal, batch_size, length):
+    if is_causal:
+        b = K.cumsum(K.eye(length), 0)
+        b = K.reshape(b, [1, 1, length, length])  # 1, 1, L, L
+        b = K.repeat_elements(b, batch_size, 0)
+    else:
+        b = None
+    if pad_mask is not None:
+        _pad_mask = K.expand_dims(pad_mask, -1)
+        _pad_mask = K.repeat_elements(_pad_mask, length, 2)
+        _pad_mask_t = K.permute_dimensions(_pad_mask, [0, 2, 1])
+        tmp = K.expand_dims(keras.layers.multiply([_pad_mask, _pad_mask_t]), 1)
+        if b is None:
+            b = tmp
+        else:
+            b = keras.layers.multiply([b, tmp])
+    return b
+
+
+def _attn(q, k, v, mask, attention_dropout):
+    w = K.batch_dot(q, k)  # w is B, H, L, L
+    n_state = shape_list(v)[-1]  # v is B, H, L, C//H
+    w = w / K.sqrt(K.cast(n_state, K.floatx()))
+    if mask is not None:
+        w = mask * w + (1.0 - mask) * 10e-9
+    w = K.softmax(w)
+    w = keras.layers.Dropout(attention_dropout)(w)
+    a = K.batch_dot(w, v)
+    return a
+
+
+def merge_states(x):
+    x_shape = shape_list(x)
+    new_x_shape = x_shape[:-2] + [np.prod(x_shape[-2:])]
+    return K.reshape(x, new_x_shape)
+
+
+def merge_heads(x):
+    return merge_states(K.permute_dimensions(x, [0, 2, 1, 3]))
+
+
+def neo_attn(x, n_state, n_head, mask, residual_dropout=0.1):  # x is batch, seq_len, channels(n_state)
+    assert n_state % n_head == 0
+    x = keras.layers.Conv1D(3 * n_state, 1)(x)  # x will be batch, seq_len, 3*channels
+
+    def helper(input):
+        q, k, v = input[:, :, :n_state], input[:, :, n_state:2 * n_state], input[:, :, -n_state:]
+        q = split_heads(q, n_head)  # q is B, H, L, C//H
+        k = split_heads(k, n_head, k=True)  # k is B, H, C//H, L
+        v = split_heads(v, n_head)
+        a = _attn(q, k, v, mask, 0.1)
+        return merge_heads(a)
+
+    a = keras.layers.Lambda(lambda input: helper(input))(x)
+    a = keras.layers.Conv1D(n_state, 1)(a)
+    a = keras.layers.Dropout(residual_dropout)(a)
+    return a
+
+
+def gelu(x):
+    return 0.5 * x * (1 + K.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * K.pow(x, 3))))
+
+
+class LayerNormalization(keras.layers.Layer):
     def __init__(self, eps=1e-6, **kwargs):
         self.eps = eps
         super(LayerNormalization, self).__init__(**kwargs)
-        self.gamma = None
-        self.beta = None
 
     def build(self, input_shape):
         self.gamma = self.add_weight(name='gamma', shape=input_shape[-1:],
-                                     initializer=Ones(), trainable=True)
+                                     initializer=keras.initializers.Ones(), trainable=True)
         self.beta = self.add_weight(name='beta', shape=input_shape[-1:],
-                                    initializer=Zeros(), trainable=True)
+                                    initializer=keras.initializers.Zeros(), trainable=True)
         super(LayerNormalization, self).build(input_shape)
 
     def call(self, x):
@@ -42,89 +106,36 @@ class LayerNormalization(Layer):
         return input_shape
 
 
-class MultiHeadAttention:
-    def __init__(self, n_head, d_model, d_k, d_v, dropout, use_norm=True):
-        self.n_head = n_head
-        self.d_k = d_k
-        self.d_v = d_v
-        self.dropout = dropout
-        self.qs_layer = Dense(n_head * d_k, use_bias=False)
-        self.ks_layer = Dense(n_head * d_k, use_bias=False)
-        self.vs_layer = Dense(n_head * d_v, use_bias=False)
-        self.attention = ScaledDotProductAttention(d_model)
-        self.layer_norm = LayerNormalization() if use_norm else None
-        self.w_o = TimeDistributed(Dense(d_model))
-
-    def __call__(self, q, k, v, mask=None):
-        d_k, d_v = self.d_k, self.d_v
-        n_head = self.n_head
-
-        qs = self.qs_layer(q)  # [batch_size, len_q, n_head*d_k]
-        ks = self.ks_layer(k)
-        vs = self.vs_layer(v)
-
-        def reshape1(x):
-            s = K.shape(x)  # [batch_size, len_q, n_head * d_k]
-            x = K.reshape(x, [s[0], s[1], n_head, d_k])
-            x = K.permute_dimensions(x, [2, 0, 1, 3])
-            x = K.reshape(x, [-1, s[1], d_k])  # [n_head * batch_size, len_q, d_k]
-            return x
-
-        qs = Lambda(reshape1)(qs)
-        ks = Lambda(reshape1)(ks)
-        vs = Lambda(reshape1)(vs)
-
-        if mask is not None:
-            mask = K.repeat_elements(mask, n_head, 0)
-        head, attn = self.attention(qs, ks, vs, mask=mask)
-
-        def reshape2(x):
-            s = K.shape(x)  # [n_head * batch_size, len_v, d_v]
-            x = K.reshape(x, [n_head, -1, s[1], s[2]])
-            x = K.permute_dimensions(x, [1, 2, 0, 3])
-            x = K.reshape(x, [-1, s[1], n_head * d_v])  # [batch_size, len_v, n_head * d_v]
-            return x
-
-        head = Lambda(reshape2)(head)
-        outputs = self.w_o(head)
-        outputs = Dropout(self.dropout)(outputs)
-        if not self.layer_norm: return outputs, attn
-        outputs = Add()([outputs, q])
-        return self.layer_norm(outputs), attn
+def position_wise(x, d_hid, dropout=0.1):
+    output = keras.layers.Lambda(lambda x: gelu(keras.layers.Conv1D(d_hid, 1)(x)))(x)
+    output = keras.layers.Conv1D(d_hid, 1)(output)
+    output = keras.layers.Dropout(dropout)(output)
+    output = keras.layers.Add()([output, x])
+    return LayerNormalization()(output)
 
 
-class PositionwiseFeedForward:
-    def __init__(self, d_hid, d_inner_hid, dropout=0.1):
-        self.w_1 = Conv1D(d_inner_hid, 1, activation='relu')
-        self.w_2 = Conv1D(d_hid, 1)
-        self.layer_norm = LayerNormalization()
-        self.dropout = Dropout(dropout)
-
-    def __call__(self, x):
-        output = self.w_1(x)
-        output = self.w_2(output)
-        output = self.dropout(output)
-        output = Add()([output, x])
-        return self.layer_norm(output)
+def encoder_layer(x, n_state, n_head, mask, dropout=0.1):
+    a = neo_attn(x, n_state, n_head, mask, residual_dropout=dropout)
+    return keras.layers.Lambda(lambda x: position_wise(x, n_state, dropout=dropout))(a)
 
 
-class EncoderLayer:
-    def __init__(self, d_model, d_inner_hid, n_head, d_k, d_v, dropout=0.1):
-        self.self_att_layer = MultiHeadAttention(n_head, d_model, d_k, d_v, dropout=dropout)
-        self.pos_ffn_layer = PositionwiseFeedForward(d_model, d_inner_hid, dropout=dropout)
+# TODO use a config for default values
+def create_model(embedding_dim: int, embedding_dropout: float = 0.1,
+                 vocab_size: int = 30000, num_segments: int = 2, max_len: int = 512,
+                 trainable_pos_embedding: bool = True, n_head: int = 12, n_layers: int = 12,
+                 transformer_dropout: float = 0.1, use_one_embedding_dropout: bool = True, is_causal: bool = False):
+    tokens = keras.layers.Input(shape=(max_len,), tensor=K.variable(np.random.randint(0, 3, (32, max_len))))
+    segment_ids = keras.layers.Input(shape=(max_len,), tensor=K.variable(np.random.randint(0, 2, (32, max_len))))
+    masks = keras.layers.Input(shape=(max_len,),
+                               tensor=K.variable(np.random.randint(0, 1, (32, max_len)).astype(np.float32)))
+    x = Embedding(embedding_dim, embedding_dropout, vocab_size, num_segments, max_len,
+                  trainable_pos_embedding, use_one_embedding_dropout)(tokens, segment_ids)
+    shape = shape_list(x)
+    mask = keras.layers.Lambda(lambda lambda_in: mask_attn_weights(lambda_in, is_causal, shape[0], shape[1]))(masks)
+    for _ in range(n_layers):
+        x = encoder_layer(x, embedding_dim, n_head, mask, dropout=transformer_dropout)
+    print(K.eval(x))
+    return keras.Model(inputs=[tokens, segment_ids, masks], outputs=[x])
 
-    def __call__(self, enc_input, mask=None):
-        output, slf_attn = self.self_att_layer(enc_input, enc_input, enc_input, mask=mask)
-        output = self.pos_ffn_layer(output)
-        return output, slf_attn
 
-
-class Encoder:
-    def __init__(self, d_model, d_inner_hid, n_head, d_k, d_v, layers=6, dropout=0.1):
-        self.layers = [EncoderLayer(d_model, d_inner_hid, n_head, d_k, d_v, dropout) for _ in range(layers)]
-
-    def __call__(self, x, mask):
-        for enc_layer in self.layers:
-            x, att = enc_layer(x, mask)
-        # TODO add another norm at the end
-        return x
+a = create_model(300, vocab_size=10, max_len=64, trainable_pos_embedding=False, n_head=3, n_layers=3, is_causal=True)

@@ -23,6 +23,7 @@ class TextEncoder:
     MSK_OFFSET = 1
     BOS_OFFSET = 2
     EOS_OFFSET = 3
+    SPECIAL_COUNT = 4
     SGA_OFFSET = 4  # Segment_A
     SGB_OFFSET = 5  # Segment_A
     POS_START_OFFSET = 6
@@ -48,20 +49,20 @@ class TextEncoder:
 
 class SentencePieceTextEncoder(TextEncoder):
     def __init__(self, text_corpus_address: str, model_name: str = 'spm',
-                 vocab_size: int = 30000, model_type: str = 'unigram'):
+                 vocab_size: int = 30000, spm_model_type: str = 'unigram'):
         super().__init__(vocab_size)
         if not os.path.exists('{}.model'.format(model_name)):
-            if model_type.lower() not in ('unigram', 'bpe', 'char', 'word'):
+            if spm_model_type.lower() not in ('unigram', 'bpe', 'char', 'word'):
                 raise ValueError(
                     '{} is not a valid model_type for sentence piece, '
-                    'valid options are: unigram, bpe, char, word'.format(model_type))
+                    'valid options are: unigram, bpe, char, word'.format(spm_model_type))
             spm.SentencePieceTrainer.Train(
                 '--input={input} --model_prefix={model_name} --vocab_size={vocab_size} '
                 '--character_coverage={coverage} --model_type={model_type} '
                 '--pad_id=-1 --unk_id=0 --bos_id=-1 --eos_id=-1 --input_sentence_size=100000000 '
                 '--training_sentence_size=100000000 --control_symbols=@@@<MASK>@@@'.format(
                     input=text_corpus_address, model_name=model_name, vocab_size=vocab_size, coverage=1,
-                    model_type=model_type.lower()))
+                    model_type=spm_model_type.lower()))
         self.sp = spm.SentencePieceProcessor()
         self.sp.load('{}.model'.format(model_name))
 

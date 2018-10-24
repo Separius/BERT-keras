@@ -15,25 +15,27 @@ class BERTSentenceBatch(NamedTuple):
     sentence_classification: Optional[Dict[str, np.array]] = None  # task_name: batch_size
 
 
+# TODO read defaults from a config class
 def lm_generator(text_corpus_address: str, text_encoder: TextEncoder, keep_prob: float = 0.85,
                  mask_prob: float = 0.8 * 0.15, rand_prob: float = 0.1 * 0.15, min_len: Optional[int] = None,
-                 max_len: Optional[int] = 512, steps=1000000, jump_prob: float = 0.1, mismatch_prob: float = 0.5,
-                 num_files: int = 8, use_single_sentence: bool = False,
+                 max_len: Optional[int] = 512, steps=1000000, file_jump_prob: float = 0.1, mismatch_prob: float = 0.5,
+                 num_file_pointers: int = 8, use_single_sentence: bool = False,
                  batch_size: int = 256) -> Generator[BERTSentenceBatch, None, None]:
     if not (0.0 <= mask_prob <= 1.0 and
             0.0 <= rand_prob <= 1.0 and
             0.0 <= keep_prob <= 1.0 and
-            0.0 <= jump_prob <= 1.0):
+            0.0 <= file_jump_prob <= 1.0):
         raise ValueError('all probablities should be between [0, 1]')
     if mask_prob + rand_prob + keep_prob > 1.0:
         raise ValueError('sum of mask, rand and keep probablities should be less than 1.0')
     if use_single_sentence:
         generator = _get_lm_generator_single(text_corpus_address, text_encoder, keep_prob, mask_prob, rand_prob,
-                                             min_len, max_len, steps, jump_prob, num_files)
+                                             min_len, max_len, steps, file_jump_prob, num_file_pointers)
     else:
-        in_memory = jump_prob == 0.0 and num_files == 1
+        in_memory = file_jump_prob == 0.0 and num_file_pointers == 1
         generator = _get_lm_generator_double(text_corpus_address, text_encoder, keep_prob, mask_prob, rand_prob,
-                                             min_len, max_len, steps, mismatch_prob, in_memory, jump_prob, num_files)
+                                             min_len, max_len, steps, mismatch_prob, in_memory, file_jump_prob,
+                                             num_file_pointers)
     batch = []
     for item in generator:
         batch.append(item)
@@ -116,10 +118,9 @@ def _create_batch(batch: List[_BERTSentence], pad_id: int, max_len: Optional[int
     )
 
 
-def _get_lm_generator_single(text_corpus_address: str, text_encoder: TextEncoder, keep_prob: float = 0.85,
-                             mask_prob: float = 0.8 * 0.15, rand_prob: float = 0.1 * 0.15,
-                             min_len: Optional[int] = None, max_len: Optional[int] = 512, steps=1000000,
-                             jump_prob: float = 0.1, num_files: int = 8) -> Generator[_BERTSentence, None, None]:
+def _get_lm_generator_single(text_corpus_address: str, text_encoder: TextEncoder, keep_prob: float, mask_prob: float,
+                             rand_prob: float, min_len: Optional[int], max_len: Optional[int], steps: int, jump_prob,
+                             num_files) -> Generator[_BERTSentence, None, None]:
     counter = 0
     _max_len = float('inf') if max_len is None else max_len - 2
     _min_len = 0 if min_len is None else min_len - 2
@@ -149,11 +150,10 @@ def _get_lm_generator_single(text_corpus_address: str, text_encoder: TextEncoder
         f.close()
 
 
-def _get_lm_generator_double(text_corpus_address: str, text_encoder: TextEncoder, keep_prob: float = 0.85,
-                             mask_prob: float = 0.8 * 0.15, rand_prob: float = 0.1 * 0.15,
-                             min_len: Optional[int] = None, max_len: Optional[int] = 512, steps=1000000,
-                             mismatch_prob: float = 0.5, in_memory: bool = False, jump_prob: float = 0.1,
-                             num_files: int = 8) -> Generator[_BERTSentence, None, None]:
+def _get_lm_generator_double(text_corpus_address: str, text_encoder: TextEncoder, keep_prob: float, mask_prob: float,
+                             rand_prob: float, min_len: Optional[int], max_len: Optional[int], steps: int,
+                             mismatch_prob: float, in_memory: bool, jump_prob: float, num_files: int) -> Generator[
+    _BERTSentence, None, None]:
     counter = 0
     _max_len = float('inf') if max_len is None else max_len - 3
     _min_len = 0 if min_len is None else min_len - 3
