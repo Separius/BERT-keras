@@ -11,14 +11,12 @@ class ScaledDotProductAttention:
         self.dropout = Dropout(attn_dropout)
 
     def __call__(self, q, k, v, mask):
-        attn = Lambda(lambda x: K.batch_dot(x[0], x[1], axes=[2, 2]) / self.temper)([q, k])
+        attn = K.batch_dot(q, k, axes=[2, 2]) / self.temper
         if mask is not None:
-            mmask = Lambda(lambda x: (-1e+10) * x)(mask)
-            attn = Add()([attn, mmask])
+            attn = Add()([attn, -1e+10 * mask])
         attn = Activation('softmax')(attn)
         attn = self.dropout(attn)
-        output = Lambda(lambda x: K.batch_dot(x[0], x[1]))([attn, v])
-        return output, attn
+        return K.batch_dot(attn, v), attn
 
 
 class LayerNormalization(Layer):
@@ -77,7 +75,7 @@ class MultiHeadAttention:
         vs = Lambda(reshape1)(vs)
 
         if mask is not None:
-            mask = Lambda(lambda x: K.repeat_elements(x, n_head, 0))(mask)
+            mask = K.repeat_elements(mask, n_head, 0)
         head, attn = self.attention(qs, ks, vs, mask=mask)
 
         def reshape2(x):
@@ -128,4 +126,5 @@ class Encoder:
     def __call__(self, x, mask):
         for enc_layer in self.layers:
             x, att = enc_layer(x, mask)
+        # TODO add another norm at the end
         return x
