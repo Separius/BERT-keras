@@ -1,6 +1,5 @@
 import keras
 import numpy as np
-import keras.backend as K
 from typing import Optional
 
 
@@ -31,12 +30,10 @@ class Embedding:
         self.dropout = keras.layers.Dropout(dropout)
         self.use_one_dropout = use_one_dropout
 
-    def __call__(self, tokens, segment_ids):
+    def __call__(self, tokens, segment_ids, pos_ids):
         token_embedding = self.token_emb(tokens)
         segment_embedding = self.segment_emb(segment_ids)
-        # TODO make it cleaner/better
-        pos_embedding = keras.layers.Lambda(
-            lambda x: self.pos_emb(K.variable(np.arange(self.max_len).reshape((1, -1)))))(segment_embedding)
+        pos_embedding = self.pos_emb(pos_ids)
         if self.use_one_dropout:
             return self.dropout(keras.layers.add([token_embedding, segment_embedding, pos_embedding]))
         else:
