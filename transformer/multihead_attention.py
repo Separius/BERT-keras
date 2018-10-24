@@ -1,9 +1,12 @@
+import json
 import math
 import keras
 import numpy as np
 import keras.backend as K
 from typing import Optional
+from data.vocab import TextEncoder
 from transformer.embedding import Embedding
+from transformer.config import OpenAIConfig, BERTConfig
 from keras.layers import Lambda, Conv1D, Dropout, Add, Layer, Input
 
 
@@ -120,10 +123,10 @@ def encoder_layer(x, n_state, n_head, mask, d_hid, residual_dropout, attention_d
     return output
 
 
-# TODO use a config for default values
+# TODO use a config for default values(NOTE that for vocab_size you should also add special_count)
 def create_model(embedding_dim: int, embedding_dropout: float, vocab_size: int, max_len: int,
                  trainable_pos_embedding: bool, num_heads: int, num_layers: int, attention_dropout: float,
-                 use_one_embedding_dropout: bool, d_hid: int, residual_dropout: float = 0.1, num_segments: int = 2):
+                 use_one_embedding_dropout: bool, d_hid: int, residual_dropout: float, num_segments: int = 2):
     # NOTE mask is created via mask_attn_weights_numpy
     mask = Input(shape=(1, max_len, max_len), name='MaskInput')
     tokens = Input(shape=(max_len,), name='TokenInput')
@@ -135,4 +138,21 @@ def create_model(embedding_dim: int, embedding_dropout: float, vocab_size: int, 
         x = encoder_layer(x, embedding_dim, num_heads, mask, d_hid, residual_dropout, attention_dropout, i)
     return keras.Model(inputs=[tokens, segment_ids, mask], outputs=[x], name='Transformer')
 
-# TODO load, pretrain, test, sentence_level_train, QRNN, release! :D
+
+# TODO pretrain, test(against openAI), sentence_level_train, QRNN, release! :D + realize what is mask in bert-pytorch
+def load_model(path: str):
+    shapes = json.load(open(path + 'params_shapes.json'))
+    offsets = np.cumsum([np.prod(shape) for shape in shapes])
+    init_params = [np.load(path + 'params_{}.npy'.format(n)) for n in range(10)]
+    init_params = np.split(np.concatenate(init_params, 0), offsets)[:-1]
+    init_params = [param.reshape(shape) for param, shape in zip(init_params, shapes)]
+    init_params[1] = np.concatenate(
+        (init_params[1], np.random.randn(TextEncoder.SPECIAL_COUNT, OpenAIConfig.EMBEDDING_SIZE).astype(
+            np.float32) * 0.02), axis=0)
+    init_params = [np.zeros((BERTConfig.NUM_SEGMENTS, OpenAIConfig.EMBEDDING_SIZE)).astype(np.float32)] + init_params
+    model = create_model(embedding_dim=768, embedding_dropout=0.1, vocab_size=40478 + TextEncoder.SPECIAL_COUNT,
+                         max_len=512,
+                         trainable_pos_embedding=True, num_heads=12, num_layers=12, use_one_embedding_dropout=False,
+                         d_hid=768 * 4, num_segments=2, attention_dropout=0.1, residual_dropout=0.1)
+    model.set_weights(init_params)
+    return model
