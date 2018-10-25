@@ -1,7 +1,6 @@
 import os
 import uuid
 import keras
-import tempfile
 from importlib import reload
 from keras import backend as K
 from unittest import TestCase, SkipTest
@@ -47,6 +46,14 @@ class TestTransformer(TestCase):
 
     def test_keras_load(self):
         pass  # TODO compare with the original implementation
+
+    #TODO add custom_objects={'MyLayer': MyLayer()}
+    @staticmethod
+    def save_load_model(model):
+        path = '/tmp/{}.model'.format(uuid.uuid4())
+        model.save(path)
+        keras.models.load_model(path)
+        os.remove(path)
 
     # https://stackoverflow.com/questions/50825248/keras-backend-reshape-typeerror-failed-to-convert-object-of-type-class-list
     # https://github.com/tensorflow/models/issues/3873

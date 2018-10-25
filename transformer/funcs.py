@@ -7,12 +7,16 @@ from keras.layers import Dropout
 # TODO this does not work for theano :( [and I was unable to install cntk to check it]
 def shape_list(x):
     if K.backend() == 'tensorflow':
-        return list(K.int_shape(x))
+        tmp = K.int_shape(x)
     else:
-        return list(x.shape)
+        tmp = x.shape
+        print(tmp)
+    tmp = list(tmp)
+    tmp[0] = -1
+    return tmp
 
 
-def split_heads(x, n: int, k: bool = False):
+def split_heads(x, n: int, k: bool = False):  # B, L, C
     x_shape = shape_list(x)
     m = x_shape[-1]
     new_x_shape = x_shape[:-1] + [n, m // n]
@@ -28,6 +32,7 @@ def merge_heads(x):
 
 
 def scaled_dot_product_attention(q, k, v, mask, attention_dropout: float):
+    # q is B, H, L, C//H ; k is B, H, C//H, L
     w = K.batch_dot(q, k) / K.sqrt(K.cast(shape_list(v)[-1], K.floatx()))  # w is B, H, L, L
     if mask is not None:
         w = mask * w + (1.0 - mask) * 10e-9
@@ -37,14 +42,14 @@ def scaled_dot_product_attention(q, k, v, mask, attention_dropout: float):
         # TODO make this work
         w = K.T.exp(w - w.max()) / K.T.exp(w - w.max()).sum(axis=-1, keepdims=True)
     w = Dropout(attention_dropout)(w)
-    return K.batch_dot(w, v)
+    return K.batch_dot(w, v)  # v is B, H, L, C//H
 
 
 def self_attention(x, mask, n_head: int, n_state: int, attention_dropout: float):
     _q, _k, _v = x[:, :, :n_state], x[:, :, n_state:2 * n_state], x[:, :, -n_state:]
-    q = split_heads(_q, n_head)  # q is B, H, L, C//H
-    k = split_heads(_k, n_head, k=True)  # k is B, H, C//H, L
-    v = split_heads(_v, n_head)
+    q = split_heads(_q, n_head)  # B, H, L, C//H
+    k = split_heads(_k, n_head, k=True)  # B, H, C//H, L
+    v = split_heads(_v, n_head)  # B, H, L, C//H
     a = scaled_dot_product_attention(q, k, v, mask, attention_dropout)
     return merge_heads(a)
 
