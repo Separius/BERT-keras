@@ -15,19 +15,20 @@ except ImportError:
     print("if you want to use OpenAI's encoder and pretrained model, please install spacy, and ftfy")
 
 
-# TOKEN_IDs = {unk=0, vocab={1..vocab_size-1}, specials(pad,bos,eos,msk), segments, positions}
+# TOKEN_IDs = {unk=0, vocab={1..vocab_size-1}, specials(pad,bos,del,eos,msk), segments, positions}
 
 
 class TextEncoder:
     PAD_OFFSET = 0
     MSK_OFFSET = 1
     BOS_OFFSET = 2
-    EOS_OFFSET = 3
-    SPECIAL_COUNT = 4
-    SGA_OFFSET = 4  # Segment_A
-    SGB_OFFSET = 5  # Segment_B
+    DEL_OFFSET = 3  # delimiter
+    EOS_OFFSET = 4
+    SPECIAL_COUNT = 5
+    SGA_OFFSET = 5  # Segment_A
+    SGB_OFFSET = 6  # Segment_B
     NUM_SEGMENTS = 2
-    POS_START_OFFSET = 6
+    POS_START_OFFSET = 7
 
     def __init__(self, vocab_size: int):
         # NOTE you MUST always put unk at 0, then regular vocab, then special chars, and then pos
@@ -36,6 +37,7 @@ class TextEncoder:
         self.pad_id = vocab_size + self.PAD_OFFSET
         self.msk_id = vocab_size + self.MSK_OFFSET
         self.bos_id = vocab_size + self.BOS_OFFSET
+        self.del_id = vocab_size + self.DEL_OFFSET
         self.eos_id = vocab_size + self.EOS_OFFSET
         self.sga_id = vocab_size + self.SGA_OFFSET
         self.sgb_id = vocab_size + self.SGB_OFFSET

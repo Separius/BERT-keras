@@ -204,7 +204,7 @@ def _get_lm_generator_double(text_corpus_address: str, text_encoder: TextEncoder
         if sent2 is None:
             split_idx = random.randint(_min_len // 2, len(sent1.tokens) - _min_len // 2)
             masked_sentence = _MaskedSentence(
-                [text_encoder.bos_id] + sent1.tokens[:split_idx] + [text_encoder.eos_id] + sent1.tokens[
+                [text_encoder.bos_id] + sent1.tokens[:split_idx] + [text_encoder.del_id] + sent1.tokens[
                                                                                            split_idx:] + [
                     text_encoder.eos_id],
                 [text_encoder.pad_id] + sent1.lm_target[:split_idx] + [text_encoder.pad_id] + sent1.lm_target[
@@ -213,7 +213,7 @@ def _get_lm_generator_double(text_corpus_address: str, text_encoder: TextEncoder
             return _BERTSentence(masked_sentence, True,
                                  [0] * (split_idx + 2) + [1] * (len(masked_sentence.tokens) - 2 - split_idx))
         masked_sentence = _MaskedSentence(
-            [text_encoder.bos_id] + sent1.tokens + [text_encoder.eos_id] + sent2.tokens + [text_encoder.eos_id],
+            [text_encoder.bos_id] + sent1.tokens + [text_encoder.del_id] + sent2.tokens + [text_encoder.eos_id],
             [text_encoder.pad_id] + sent1.lm_target + [text_encoder.pad_id] + sent2.lm_target + [text_encoder.pad_id])
         return _BERTSentence(masked_sentence, False, [0] * (2 + len(sent1.tokens)) + [1] * (1 + len(sent2.tokens)))
 

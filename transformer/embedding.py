@@ -16,10 +16,10 @@ def _get_pos_encoding_matrix(max_len, d_emb):
 
 # NOTE that for vocab_size you should also add special_count
 class Embedding:
-    def __init__(self, output_dim: int = 768, dropout: float = 0.1, vocab_size: int = 30004, max_len: int = 512,
-                 trainable_pos_embedding: bool = True, use_one_dropout: bool = BERTConfig.USE_ONE_DROPOUT,
-                 token_emb_weight: Optional[np.array] = None, segment_emb_weight: Optional[np.array] = None,
-                 pos_emb_weight: Optional[np.array] = None):
+    def __init__(self, output_dim: int = 768, dropout: float = 0.1, vocab_size: int = 30000 + TextEncoder.SPECIAL_COUNT,
+                 max_len: int = 512, trainable_pos_embedding: bool = True,
+                 use_one_dropout: bool = BERTConfig.USE_ONE_DROPOUT, token_emb_weight: Optional[np.array] = None,
+                 segment_emb_weight: Optional[np.array] = None, pos_emb_weight: Optional[np.array] = None):
         self.segment_emb = keras.layers.Embedding(TextEncoder.NUM_SEGMENTS, output_dim, input_length=max_len,
                                                   name='SegmentEmbedding',
                                                   weights=None if segment_emb_weight is None else [segment_emb_weight])
