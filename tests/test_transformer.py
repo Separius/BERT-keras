@@ -25,7 +25,7 @@ class TestTransformer(TestCase):
         self.d_hid = 13
         self.max_len = 24
         # TODO make theano work
-        # TODO make cntk work too :D, but first install it :D, pip install cntk + agi libopencv-dev + agi openmpi-bin did not work
+        # TODO make cntk work too (Convolution operation requires that kernel dim 12 <= input dim 3 :||, MS is the best)
         self.supported_backends = {'tensorflow'}
         self.original_backend = K.backend()
 

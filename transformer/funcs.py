@@ -31,9 +31,10 @@ def merge_heads(x):
 
 
 def scaled_dot_product_attention(q, k, v, mask, attention_dropout: float):
-    w = K.batch_dot(q, k) / K.sqrt(K.cast(shape_list(v)[-1], K.floatx()))  # w is B, H, L, L
+    w = K.batch_dot(q, k)  # w is B, H, L, L
+    w = w / K.sqrt(K.cast(shape_list(v)[-1], K.floatx()))
     if mask is not None:
-        w = mask * w + (1.0 - mask) * 10e-9
+        w = mask * w + (1.0 - mask) * -1e9
     if K.backend() == 'tensorflow':
         w = K.softmax(w)
     else:

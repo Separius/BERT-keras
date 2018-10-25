@@ -57,23 +57,27 @@ class EncoderLayer:
 __test_batch_size = 3
 
 
-def load_openai_model(path: str = './openai/model/', ignore_mask: bool = False,
-                      use_one_embedding_dropout: bool = False, debug: bool = False) -> keras.Model:
+def load_openai_model(path: str = './openai/model/', ignore_mask: bool = False, use_one_embedding_dropout: bool = False,
+                      use_decoder_bias: bool = False, debug: bool = False, max_len: int = 512) -> keras.Model:
     with open(path + 'params_shapes.json') as f:
         shapes = json.load(f)
     offsets = np.cumsum([np.prod(shape) for shape in shapes])
     init_params = [np.load(path + 'params_{}.npy'.format(n)) for n in range(10)]
     init_params = np.split(np.concatenate(init_params, 0), offsets)[:-1]
     init_params = [param.reshape(shape) for param, shape in zip(init_params, shapes)]
+    init_params[0] = init_params[0][:min(512, max_len)]
     # add special token embedding to token embedding
     init_params[1] = np.concatenate(
         (init_params[1], np.random.randn(TextEncoder.SPECIAL_COUNT, 768).astype(np.float32) * 0.02), axis=0)
     init_params = [np.zeros((TextEncoder.NUM_SEGMENTS, 768)).astype(np.float32)] + init_params  # segment embedding
-    init_params = init_params + [np.zeros((40478 + TextEncoder.SPECIAL_COUNT,)).astype(np.float32)]  # decoder's bias
+    if use_decoder_bias:
+        init_params = init_params + [
+            np.zeros((40478 + TextEncoder.SPECIAL_COUNT,)).astype(np.float32)]  # decoder's bias
     model = create_model(embedding_dim=768, embedding_dropout=0.1, vocab_size=40478 + TextEncoder.SPECIAL_COUNT,
-                         max_len=512, ignore_mask=ignore_mask, trainable_pos_embedding=True, num_heads=12,
+                         max_len=min(512, max_len), ignore_mask=ignore_mask, trainable_pos_embedding=True, num_heads=12,
                          num_layers=12, use_one_embedding_dropout=use_one_embedding_dropout, d_hid=4 * 768,
-                         attention_dropout=0.1, residual_dropout=0.1, debug=debug, use_tied_decoder=True)
+                         attention_dropout=0.1, residual_dropout=0.1, debug=debug, use_tied_decoder=True,
+                         use_decoder_bias=use_decoder_bias)
     if debug:
         assert len(model.weights) == len(init_params)
         for a, b in zip(model.weights, init_params):
@@ -99,7 +103,8 @@ def create_model(embedding_dim: int = 768, embedding_dropout: float = 0.1,
                  trainable_pos_embedding: bool = True, num_heads: int = 12, num_layers: int = 12,
                  attention_dropout: float = 0.1, use_one_embedding_dropout: bool = BertConfig.USE_ONE_DROPOUT,
                  d_hid: int = 768 * 4, residual_dropout: float = 0.1, use_tied_decoder: bool = True,
-                 ignore_mask: bool = BertConfig.IGNORE_MASK, debug: bool = False) -> keras.Model:
+                 ignore_mask: bool = BertConfig.IGNORE_MASK, use_decoder_bias: bool = BertConfig.USE_DECODER_BIAS,
+                 debug: bool = False) -> keras.Model:
     # NOTE mask is created via create_mask
     mask = None if ignore_mask else Input(batch_shape=(None, 1, max_len, max_len), name='MaskInput', tensor=K.variable(
         np.random.randint(0, 2, (__test_batch_size, 1, max_len, max_len)).astype(np.float32)) if debug else None)
@@ -113,14 +118,17 @@ def create_model(embedding_dim: int = 768, embedding_dropout: float = 0.1,
                                 use_one_embedding_dropout)
     x = embedding_layer(tokens, segment_ids, pos_ids)
     for i in range(num_layers):
-        x = EncoderLayer(embedding_dim, num_heads, d_hid, residual_dropout, attention_dropout, ignore_mask, i)(x, mask)
-    logits = TimeDistributed(
-        TiedEmbeddingsTransposed(embedding_layer.token_emb.weights[0] if use_tied_decoder else None, units=vocab_size,
-                                 name='Decoder'), name='DecoderTimeDistributed')(x)
-    if debug:
-        x_eval = K.eval(x)
-        assert x_eval.shape == (__test_batch_size, max_len, embedding_dim), x_eval.shape
-        logits_eval = K.eval(logits)
-        assert logits_eval.shape == (__test_batch_size, max_len, vocab_size), logits_eval.shape
-    return keras.Model(inputs=[tokens, segment_ids, pos_ids] + ([] if ignore_mask else [mask]), outputs=[x, logits],
-                       name='Transformer')
+        x = EncoderLayer(embedding_dim, num_heads, d_hid, residual_dropout, attention_dropout, ignore_mask, i)(x,
+                                                                                                                    mask)
+    return keras.Model(inputs=[tokens, segment_ids, pos_ids] + ([] if ignore_mask else [mask]),
+                       outputs=[x], name='Transformer')
+    # logits = TimeDistributed(
+    #     TiedEmbeddingsTransposed(embedding_layer.token_emb.weights[0] if use_tied_decoder else None, units=vocab_size,
+    #                              name='Decoder', use_bias=use_decoder_bias), name='DecoderTimeDistributed')(x)
+    # if debug:
+    #     x_eval = K.eval(x)
+    #     assert x_eval.shape == (__test_batch_size, max_len, embedding_dim), x_eval.shape
+    #     logits_eval = K.eval(logits)
+    #     assert logits_eval.shape == (__test_batch_size, max_len, vocab_size), logits_eval.shape
+    # return keras.Model(inputs=[tokens, segment_ids, pos_ids] + ([] if ignore_mask else [mask]), outputs=[x, logits],
+    #                    name='Transformer')

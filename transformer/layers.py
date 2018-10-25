@@ -33,7 +33,7 @@ class SelfAttention(Layer):
 
 
 class LayerNormalization(Layer):
-    def __init__(self, eps: float = 1e-6, **kwargs) -> None:
+    def __init__(self, eps: float = 1e-5, **kwargs) -> None:
         self.eps = eps
         super().__init__(**kwargs)
 
@@ -42,10 +42,11 @@ class LayerNormalization(Layer):
         self.beta = self.add_weight(name='beta', shape=input_shape[-1:], initializer=Zeros(), trainable=True)
         super().build(input_shape)
 
-    def call(self, inputs, **kwargs):
-        mean = K.mean(inputs, axis=-1, keepdims=True)
-        std = K.std(inputs, axis=-1, keepdims=True)
-        return self.gamma * (inputs - mean) / (std + self.eps) + self.beta
+    def call(self, x, **kwargs):
+        u = K.mean(x, axis=-1, keepdims=True)
+        s = K.mean(K.square(x - u), axis=-1, keepdims=True)
+        z = (x - u) / K.sqrt(s + self.eps)
+        return self.gamma * z + self.beta
 
     def compute_output_shape(self, input_shape):
         return input_shape
@@ -70,15 +71,18 @@ class Gelu(Layer):
 
 
 class TiedEmbeddingsTransposed(Dense):
-    def __init__(self, tied_to, units: int, **kwargs):
-        super().__init__(units, **kwargs)
+    def __init__(self, tied_to, units: int, use_bias: bool, **kwargs):
+        super().__init__(units, use_bias=use_bias, **kwargs)
         self.tied_to = tied_to
 
     def build(self, input_shape):
         super().build(input_shape)
         if self.tied_to is not None:
             self.kernel = K.transpose(self.tied_to)
-            self.trainable_weights = [self.trainable_weights[1]]
+            if self.use_bias:
+                self.trainable_weights = [self.trainable_weights[1]]
+            else:
+                self.trainable_weights = []
 
     def get_config(self):
         config = {
