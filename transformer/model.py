@@ -3,14 +3,14 @@ import keras
 import numpy as np
 import keras.backend as K
 from data.vocab import TextEncoder
-from transformer.config import BERTConfig
+from transformer.config import BertConfig
 from transformer.embedding import Embedding
 from keras.layers import Conv1D, Dropout, Add, Input, TimeDistributed
 from transformer.layers import SelfAttention, Gelu, LayerNormalization, PositionIdGenerator, TiedEmbeddingsTransposed
 
 
 class MultiHeadAttention:
-    def __init__(self, n_state, n_head, attention_dropout, ignore_mask, layer_id):
+    def __init__(self, n_state: int, n_head: int, attention_dropout: float, ignore_mask: bool, layer_id: int) -> None:
         assert n_state % n_head == 0
         self.c_attn = Conv1D(3 * n_state, 1, name='layer_{}/c_attn'.format(layer_id))
         self.self_attn = SelfAttention(n_head, n_state, attention_dropout, ignore_mask,
@@ -24,7 +24,7 @@ class MultiHeadAttention:
 
 
 class PositionWiseFF:
-    def __init__(self, n_state: int, d_hid: int, layer_id: int):
+    def __init__(self, n_state: int, d_hid: int, layer_id: int) -> None:
         self.c_fc = Conv1D(d_hid, 1, name='layer_{}/c_fc'.format(layer_id))
         self.activation = Gelu(name='layer_{}/gelu'.format(layer_id))
         self.c_ffn_proj = Conv1D(n_state, 1, name='layer_{}/c_ffn_proj'.format(layer_id))
@@ -35,7 +35,8 @@ class PositionWiseFF:
 
 
 class EncoderLayer:
-    def __init__(self, n_state, n_head, d_hid, residual_dropout, attention_dropout, ignore_mask, layer_id: int):
+    def __init__(self, n_state: int, n_head: int, d_hid: int, residual_dropout: float, attention_dropout: float,
+                 ignore_mask: bool, layer_id: int) -> None:
         self.attention = MultiHeadAttention(n_state, n_head, attention_dropout, ignore_mask, layer_id)
         self.drop1 = Dropout(residual_dropout, name='layer_{}/ln_1_drop'.format(layer_id))
         self.add1 = Add(name='layer_{}/ln_1_add'.format(layer_id))
@@ -52,20 +53,24 @@ class EncoderLayer:
         return self.ln2(self.add2([n, self.drop2(f)]))
 
 
+__test_batch_size = 3
+
+
 def create_model(embedding_dim: int = 768, embedding_dropout: float = 0.1,
                  vocab_size: int = 30000 + TextEncoder.SPECIAL_COUNT, max_len: int = 512,
                  trainable_pos_embedding: bool = True, num_heads: int = 12, num_layers: int = 12,
-                 attention_dropout: float = 0.1, use_one_embedding_dropout: bool = BERTConfig.USE_ONE_DROPOUT,
+                 attention_dropout: float = 0.1, use_one_embedding_dropout: bool = BertConfig.USE_ONE_DROPOUT,
                  d_hid: int = 768 * 4, residual_dropout: float = 0.1, use_tied_decoder: bool = True,
-                 ignore_mask: bool = BERTConfig.IGNORE_MASK, debug: bool = False) -> keras.Model:
+                 ignore_mask: bool = BertConfig.IGNORE_MASK, debug: bool = False) -> keras.Model:
     # NOTE mask is created via create_mask
     mask = None if ignore_mask else Input(batch_shape=(None, 1, max_len, max_len), name='MaskInput', tensor=K.variable(
-        np.random.randint(0, 2, (3, 1, max_len, max_len)).astype(np.float32)) if debug else None)
-    tokens = Input(batch_shape=(None, max_len), name='TokenInput',
-                   tensor=K.variable(np.random.randint(0, vocab_size, (3, max_len))) if debug else None)
+        np.random.randint(0, 2, (__test_batch_size, 1, max_len, max_len)).astype(np.float32)) if debug else None)
+    tokens = Input(batch_shape=(None, max_len), name='TokenInput', tensor=K.variable(
+        np.random.randint(0, vocab_size - TextEncoder.SPECIAL_COUNT, (__test_batch_size, max_len))) if debug else None)
     segment_ids = Input(batch_shape=(None, max_len), name='SegmentInput',
-                        tensor=K.variable(np.random.randint(0, 2, (3, max_len))) if debug else None)
-    pos_ids = PositionIdGenerator(name='PositionInput')(tokens)
+                        tensor=K.variable(np.random.randint(0, 2, (__test_batch_size, max_len))) if debug else None)
+    pos_ids = Input(batch_shape=(None, max_len), name='PositionInput', tensor=K.variable(
+        np.repeat(np.arange(max_len, dtype=np.int64).reshape(1, -1), __test_batch_size, 0)) if debug else None)
     embedding_layer = Embedding(embedding_dim, embedding_dropout, vocab_size, max_len, trainable_pos_embedding,
                                 use_one_embedding_dropout)
     x = embedding_layer(tokens, segment_ids, pos_ids)
@@ -75,14 +80,18 @@ def create_model(embedding_dim: int = 768, embedding_dropout: float = 0.1,
         TiedEmbeddingsTransposed(embedding_layer.token_emb.weights[0] if use_tied_decoder else None, units=vocab_size,
                                  name='Decoder'), name='DecoderTimeDistributed')(x)
     if debug:
-        print(K.eval(x).shape, K.eval(logits).shape)
-    return keras.Model(inputs=[tokens, segment_ids] + ([] if ignore_mask else [mask]), outputs=[x, logits],
+        x_eval = K.eval(x)
+        assert x_eval.shape == (__test_batch_size, max_len, embedding_dim), x_eval.shape
+        logits_eval = K.eval(logits)
+        assert logits_eval.shape == (__test_batch_size, max_len, vocab_size), logits_eval.shape
+    return keras.Model(inputs=[tokens, segment_ids, pos_ids] + ([] if ignore_mask else [mask]), outputs=[x, logits],
                        name='Transformer')
 
 
 def load_openai_model(path: str = './openai/model/', ignore_mask: bool = False,
                       use_one_embedding_dropout: bool = False, debug: bool = False) -> keras.Model:
-    shapes = json.load(open(path + 'params_shapes.json'))
+    with open(path + 'params_shapes.json') as f:
+        shapes = json.load(f)
     offsets = np.cumsum([np.prod(shape) for shape in shapes])
     init_params = [np.load(path + 'params_{}.npy'.format(n)) for n in range(10)]
     init_params = np.split(np.concatenate(init_params, 0), offsets)[:-1]
@@ -102,3 +111,8 @@ def load_openai_model(path: str = './openai/model/', ignore_mask: bool = False,
             assert a.shape == b.shape
     model.set_weights(init_params)
     return model
+
+
+if __name__ == '__main__':
+    a = create_model(ignore_mask=False, vocab_size=37, num_heads=3, num_layers=2, embedding_dim=12, d_hid=13,
+                     debug=True, max_len=24)

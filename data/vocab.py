@@ -49,7 +49,7 @@ class TextEncoder:
 
 class SentencePieceTextEncoder(TextEncoder):
     def __init__(self, text_corpus_address: str, model_name: str = 'spm',
-                 vocab_size: int = 30000, spm_model_type: str = 'unigram'):
+                 vocab_size: int = 30000, spm_model_type: str = 'unigram') -> None:
         super().__init__(vocab_size)
         if not os.path.exists('{}.model'.format(model_name)):
             if spm_model_type.lower() not in ('unigram', 'bpe', 'char', 'word'):

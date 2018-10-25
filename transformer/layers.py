@@ -5,7 +5,7 @@ from transformer.funcs import shape_list, self_attention, gelu
 
 
 class SelfAttention(Layer):
-    def __init__(self, n_head, n_state, attention_dropout, ignore_mask, **kwargs):
+    def __init__(self, n_head: int, n_state: int, attention_dropout: float, ignore_mask: bool, **kwargs) -> None:
         super().__init__(**kwargs)
         self.n_head = n_head
         self.n_state = n_state
@@ -23,7 +23,7 @@ class SelfAttention(Layer):
 
 
 class LayerNormalization(Layer):
-    def __init__(self, eps=1e-6, **kwargs):
+    def __init__(self, eps: float = 1e-6, **kwargs) -> None:
         self.eps = eps
         super().__init__(**kwargs)
 
@@ -52,19 +52,8 @@ class Gelu(Layer):
         return input_shape
 
 
-class PositionIdGenerator(Layer):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-
-    def call(self, inputs, **kwargs):
-        return K.reshape(K.arange(shape_list(inputs)[1]), (1, -1))
-
-    def compute_output_shape(self, input_shape):
-        return (1, input_shape[1])
-
-
 class TiedEmbeddingsTransposed(Dense):
-    def __init__(self, tied_to, units, **kwargs):
+    def __init__(self, tied_to, units: int, **kwargs):
         super().__init__(units, **kwargs)
         self.tied_to = tied_to
 

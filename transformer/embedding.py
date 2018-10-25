@@ -2,13 +2,13 @@ import keras
 import numpy as np
 from typing import Optional
 from data.vocab import TextEncoder
-from transformer.config import BERTConfig
+from transformer.config import BertConfig
 
 
-def _get_pos_encoding_matrix(max_len, d_emb):
+def _get_pos_encoding_matrix(max_len: int, d_emb: int) -> np.array:
     pos_enc = np.array(
         [[pos / np.power(10000, 2 * (j // 2) / d_emb) for j in range(d_emb)] if pos != 0 else np.zeros(d_emb) for pos in
-         range(max_len)])
+         range(max_len)], dtype=np.float32)
     pos_enc[1:, 0::2] = np.sin(pos_enc[1:, 0::2])  # dim 2i
     pos_enc[1:, 1::2] = np.cos(pos_enc[1:, 1::2])  # dim 2i+1
     return pos_enc
@@ -18,7 +18,7 @@ def _get_pos_encoding_matrix(max_len, d_emb):
 class Embedding:
     def __init__(self, output_dim: int = 768, dropout: float = 0.1, vocab_size: int = 30000 + TextEncoder.SPECIAL_COUNT,
                  max_len: int = 512, trainable_pos_embedding: bool = True,
-                 use_one_dropout: bool = BERTConfig.USE_ONE_DROPOUT, token_emb_weight: Optional[np.array] = None,
+                 use_one_dropout: bool = BertConfig.USE_ONE_DROPOUT, token_emb_weight: Optional[np.array] = None,
                  segment_emb_weight: Optional[np.array] = None, pos_emb_weight: Optional[np.array] = None):
         self.segment_emb = keras.layers.Embedding(TextEncoder.NUM_SEGMENTS, output_dim, input_length=max_len,
                                                   name='SegmentEmbedding',
