@@ -1,7 +1,7 @@
 import keras.backend as K
 from keras.layers import Layer, Dense
 from keras.initializers import Ones, Zeros
-from transformer.funcs import shape_list, self_attention, gelu
+from transformer.funcs import self_attention, gelu
 
 
 class SelfAttention(Layer):
@@ -21,6 +21,16 @@ class SelfAttention(Layer):
         mask = None if self.ignore_mask else inputs[1]
         return self_attention(x, mask, self.n_head, self.n_state, self.attention_dropout)
 
+    def get_config(self):
+        config = {
+            'n_head': self.n_head,
+            'n_state': self.n_state,
+            'attention_dropout': self.attention_dropout,
+            'ignore_mask': self.ignore_mask,
+        }
+        base_config = super().get_config()
+        return dict(list(base_config.items()) + list(config.items()))
+
 
 class LayerNormalization(Layer):
     def __init__(self, eps: float = 1e-6, **kwargs) -> None:
@@ -39,6 +49,13 @@ class LayerNormalization(Layer):
 
     def compute_output_shape(self, input_shape):
         return input_shape
+
+    def get_config(self):
+        config = {
+            'eps': self.eps,
+        }
+        base_config = super().get_config()
+        return dict(list(base_config.items()) + list(config.items()))
 
 
 class Gelu(Layer):
@@ -62,3 +79,10 @@ class TiedEmbeddingsTransposed(Dense):
         if self.tied_to is not None:
             self.kernel = K.transpose(self.tied_to)
             self.trainable_weights = [self.trainable_weights[1]]
+
+    def get_config(self):
+        config = {
+            'tied_to': None,
+        }
+        base_config = super().get_config()
+        return dict(list(base_config.items()) + list(config.items()))

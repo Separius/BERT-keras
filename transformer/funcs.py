@@ -10,7 +10,6 @@ def shape_list(x):
         tmp = K.int_shape(x)
     else:
         tmp = x.shape
-        print(tmp)
     tmp = list(tmp)
     tmp[0] = -1
     return tmp
@@ -32,14 +31,12 @@ def merge_heads(x):
 
 
 def scaled_dot_product_attention(q, k, v, mask, attention_dropout: float):
-    # q is B, H, L, C//H ; k is B, H, C//H, L
     w = K.batch_dot(q, k) / K.sqrt(K.cast(shape_list(v)[-1], K.floatx()))  # w is B, H, L, L
     if mask is not None:
         w = mask * w + (1.0 - mask) * 10e-9
     if K.backend() == 'tensorflow':
         w = K.softmax(w)
     else:
-        # TODO make this work
         w = K.T.exp(w - w.max()) / K.T.exp(w - w.max()).sum(axis=-1, keepdims=True)
     w = Dropout(attention_dropout)(w)
     return K.batch_dot(w, v)  # v is B, H, L, C//H

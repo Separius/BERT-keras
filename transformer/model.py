@@ -82,7 +82,7 @@ def load_openai_model(path: str = './openai/model/', ignore_mask: bool = False,
     return model
 
 
-def save_load_model(model):
+def save_load_weights(model):
     path = '/home/sepehr/Desktop/tmp.km'
     try:
         model.save_weights(path)
@@ -117,20 +117,10 @@ def create_model(embedding_dim: int = 768, embedding_dropout: float = 0.1,
     logits = TimeDistributed(
         TiedEmbeddingsTransposed(embedding_layer.token_emb.weights[0] if use_tied_decoder else None, units=vocab_size,
                                  name='Decoder'), name='DecoderTimeDistributed')(x)
-    # if debug:
-    #     x_eval = K.eval(x)
-    #     assert x_eval.shape == (__test_batch_size, max_len, embedding_dim), x_eval.shape
-    #     logits_eval = K.eval(logits)
-    #     assert logits_eval.shape == (__test_batch_size, max_len, vocab_size), logits_eval.shape
+    if debug:
+        x_eval = K.eval(x)
+        assert x_eval.shape == (__test_batch_size, max_len, embedding_dim), x_eval.shape
+        logits_eval = K.eval(logits)
+        assert logits_eval.shape == (__test_batch_size, max_len, vocab_size), logits_eval.shape
     return keras.Model(inputs=[tokens, segment_ids, pos_ids] + ([] if ignore_mask else [mask]), outputs=[x, logits],
                        name='Transformer')
-
-
-# if __name__ == '__main__':
-#     a = create_model(ignore_mask=False, vocab_size=37, num_heads=3, num_layers=2, embedding_dim=12, d_hid=13,
-#                      debug=True, max_len=24)
-
-a = create_model(ignore_mask=True, vocab_size=37, num_heads=3, num_layers=2, embedding_dim=12, d_hid=13, debug=False,
-                 max_len=24)
-a.summary()
-save_load_model(a)
