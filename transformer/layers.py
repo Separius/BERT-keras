@@ -70,5 +70,6 @@ class TiedEmbeddingsTransposed(Dense):
 
     def build(self, input_shape):
         super().build(input_shape)
-        self.kernel = K.transpose(self.tied_to.weights[0])
-        self.trainable_weights = [self.trainable_weights[1]]
+        if self.tied_to is not None:
+            self.kernel = K.transpose(self.tied_to)
+            self.trainable_weights = [self.trainable_weights[1]]

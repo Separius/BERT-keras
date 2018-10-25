@@ -56,7 +56,7 @@ def create_model(embedding_dim: int = 768, embedding_dropout: float = 0.1,
                  vocab_size: int = 30000 + TextEncoder.SPECIAL_COUNT, max_len: int = 512,
                  trainable_pos_embedding: bool = True, num_heads: int = 12, num_layers: int = 12,
                  attention_dropout: float = 0.1, use_one_embedding_dropout: bool = BERTConfig.USE_ONE_DROPOUT,
-                 d_hid: int = 768 * 4, residual_dropout: float = 0.1,
+                 d_hid: int = 768 * 4, residual_dropout: float = 0.1, use_tied_decoder: bool = True,
                  ignore_mask: bool = BERTConfig.IGNORE_MASK, debug: bool = False) -> keras.Model:
     # NOTE mask is created via create_mask
     mask = None if ignore_mask else Input(batch_shape=(None, 1, max_len, max_len), name='MaskInput', tensor=K.variable(
@@ -71,15 +71,16 @@ def create_model(embedding_dim: int = 768, embedding_dropout: float = 0.1,
     x = embedding_layer(tokens, segment_ids, pos_ids)
     for i in range(num_layers):
         x = EncoderLayer(embedding_dim, num_heads, d_hid, residual_dropout, attention_dropout, ignore_mask, i)(x, mask)
-    logits = TimeDistributed(TiedEmbeddingsTransposed(embedding_layer.token_emb, units=vocab_size, name='TiedDecoder'),
-                             name='TiedDecoderDistributed')(x)
+    logits = TimeDistributed(
+        TiedEmbeddingsTransposed(embedding_layer.token_emb.weights[0] if use_tied_decoder else None, units=vocab_size,
+                                 name='Decoder'), name='DecoderTimeDistributed')(x)
     if debug:
         print(K.eval(x).shape, K.eval(logits).shape)
     return keras.Model(inputs=[tokens, segment_ids] + ([] if ignore_mask else [mask]), outputs=[x, logits],
                        name='Transformer')
 
 
-def load_openai_model(path: str = './openai_weights/', ignore_mask: bool = False,
+def load_openai_model(path: str = './openai/model/', ignore_mask: bool = False,
                       use_one_embedding_dropout: bool = False, debug: bool = False) -> keras.Model:
     shapes = json.load(open(path + 'params_shapes.json'))
     offsets = np.cumsum([np.prod(shape) for shape in shapes])
@@ -94,7 +95,7 @@ def load_openai_model(path: str = './openai_weights/', ignore_mask: bool = False
     model = create_model(embedding_dim=768, embedding_dropout=0.1, vocab_size=40478 + TextEncoder.SPECIAL_COUNT,
                          max_len=512, ignore_mask=ignore_mask, trainable_pos_embedding=True, num_heads=12,
                          num_layers=12, use_one_embedding_dropout=use_one_embedding_dropout, d_hid=4 * 768,
-                         attention_dropout=0.1, residual_dropout=0.1, debug=debug)
+                         attention_dropout=0.1, residual_dropout=0.1, debug=debug, use_tied_decoder=True)
     if debug:
         assert len(model.weights) == len(init_params)
         for a, b in zip(model.weights, init_params):
