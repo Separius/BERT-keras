@@ -15,11 +15,19 @@ def _get_pos_encoding_matrix(max_len: int, d_emb: int) -> np.array:
 
 
 # NOTE that for vocab_size you should also add special_count
-class Embedding:
+class Embedding(keras.layers.Layer):
     def __init__(self, output_dim: int = 768, dropout: float = 0.1, vocab_size: int = 30000 + TextEncoder.SPECIAL_COUNT,
                  max_len: int = 512, trainable_pos_embedding: bool = True,
                  use_one_dropout: bool = BertConfig.USE_ONE_DROPOUT, token_emb_weight: Optional[np.array] = None,
-                 segment_emb_weight: Optional[np.array] = None, pos_emb_weight: Optional[np.array] = None):
+                 segment_emb_weight: Optional[np.array] = None, pos_emb_weight: Optional[np.array] = None, **kwargs):
+        super().__init__(**kwargs)
+        self.max_len = max_len
+        self.use_one_dropout = use_one_dropout
+        self.output_dim = output_dim
+        self.dropout = dropout
+        self.vocab_size = vocab_size
+        self.trainable_pos_embedding = trainable_pos_embedding
+
         self.segment_emb = keras.layers.Embedding(TextEncoder.NUM_SEGMENTS, output_dim, input_length=max_len,
                                                   name='SegmentEmbedding',
                                                   weights=None if segment_emb_weight is None else [segment_emb_weight])
@@ -31,17 +39,30 @@ class Embedding:
             self.pos_emb = keras.layers.Embedding(max_len, output_dim, input_length=max_len, name='PositionEmbedding')
         self.token_emb = keras.layers.Embedding(vocab_size, output_dim, input_length=max_len, name='TokenEmbedding',
                                                 weights=None if token_emb_weight is None else [token_emb_weight])
-        self.max_len = max_len
-        self.dropout = keras.layers.Dropout(dropout, name='EmbeddingDropOut')
-        self.use_one_dropout = use_one_dropout
+        self.embedding_dropout = keras.layers.Dropout(dropout, name='EmbeddingDropOut')
         self.add_embeddings = keras.layers.Add(name='AddEmbeddings')
 
-    def __call__(self, tokens, segment_ids, pos_ids):
+    def compute_output_shape(self, input_shape):
+        return input_shape[0][0], input_shape[0][1], self.output_dim
+
+    def get_config(self):
+        config = {
+            'max_len': self.max_len,
+            'use_one_dropout': self.use_one_dropout,
+            'output_dim': self.output_dim,
+            'dropout': self.dropout,
+            'vocab_size': self.vocab_size,
+            'trainable_pos_embedding': self.trainable_pos_embedding,
+        }
+        base_config = super().get_config()
+        return dict(list(base_config.items()) + list(config.items()))
+
+    def __call__(self, inputs, **kwargs):
+        tokens, segment_ids, pos_ids = inputs
         segment_embedding = self.segment_emb(segment_ids)
         pos_embedding = self.pos_emb(pos_ids)
         token_embedding = self.token_emb(tokens)
         if self.use_one_dropout:
-            return self.dropout(self.add_embeddings([segment_embedding, pos_embedding, token_embedding]))
-        else:
-            return self.add_embeddings(
-                [self.dropout(segment_embedding), self.dropout(pos_embedding), self.dropout(token_embedding)])
+            return self.embedding_dropout(self.add_embeddings([segment_embedding, pos_embedding, token_embedding]))
+        return self.add_embeddings([self.embedding_dropout(segment_embedding), self.embedding_dropout(pos_embedding),
+                                    self.embedding_dropout(token_embedding)])

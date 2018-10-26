@@ -4,9 +4,8 @@ import keras.backend as K
 from keras.layers import Dropout
 
 
-# TODO this does not work for theano :( [and I was unable to install cntk to check it]
 def shape_list(x):
-    if K.backend() == 'tensorflow':
+    if K.backend() != 'theano':
         tmp = K.int_shape(x)
     else:
         tmp = x.shape
@@ -30,6 +29,8 @@ def merge_heads(x):
     return K.reshape(new_x, new_x_shape)
 
 
+# TODO theano fails on this (input is also problematic, cause it fails on the first line; passing v works though)
+# q,v are B, H, L, C//H ; k is B, H, C//H, L ; mask is B, 1, L, L
 def scaled_dot_product_attention(q, k, v, mask, attention_dropout: float):
     w = K.batch_dot(q, k)  # w is B, H, L, L
     w = w / K.sqrt(K.cast(shape_list(v)[-1], K.floatx()))
@@ -40,10 +41,10 @@ def scaled_dot_product_attention(q, k, v, mask, attention_dropout: float):
     else:
         w = K.T.exp(w - w.max()) / K.T.exp(w - w.max()).sum(axis=-1, keepdims=True)
     w = Dropout(attention_dropout)(w)
-    return K.batch_dot(w, v)  # v is B, H, L, C//H
+    return K.batch_dot(w, v)  # it is B, H, L, C//H [like v]
 
 
-def self_attention(x, mask, n_head: int, n_state: int, attention_dropout: float):
+def multihead_attention(x, mask, n_head: int, n_state: int, attention_dropout: float):
     _q, _k, _v = x[:, :, :n_state], x[:, :, n_state:2 * n_state], x[:, :, -n_state:]
     q = split_heads(_q, n_head)  # B, H, L, C//H
     k = split_heads(_k, n_head, k=True)  # B, H, C//H, L

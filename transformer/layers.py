@@ -1,10 +1,10 @@
 import keras.backend as K
 from keras.layers import Layer, Dense
 from keras.initializers import Ones, Zeros
-from transformer.funcs import self_attention, gelu
+from transformer.funcs import multihead_attention, gelu
 
 
-class SelfAttention(Layer):
+class MultiHeadAttention(Layer):
     def __init__(self, n_head: int, n_state: int, attention_dropout: float, ignore_mask: bool, **kwargs) -> None:
         super().__init__(**kwargs)
         self.n_head = n_head
@@ -19,7 +19,7 @@ class SelfAttention(Layer):
     def call(self, inputs, **kwargs):
         x = inputs if self.ignore_mask else inputs[0]
         mask = None if self.ignore_mask else inputs[1]
-        return self_attention(x, mask, self.n_head, self.n_state, self.attention_dropout)
+        return multihead_attention(x, mask, self.n_head, self.n_state, self.attention_dropout)
 
     def get_config(self):
         config = {
@@ -73,12 +73,12 @@ class Gelu(Layer):
 class TiedEmbeddingsTransposed(Dense):
     def __init__(self, tied_to, units: int, use_bias: bool, **kwargs):
         super().__init__(units, use_bias=use_bias, **kwargs)
-        self.tied_to = tied_to
+        self.tied_to = None if tied_to is None else K.transpose(tied_to)
 
     def build(self, input_shape):
         super().build(input_shape)
         if self.tied_to is not None:
-            self.kernel = K.transpose(self.tied_to)
+            self.kernel = self.tied_to
             if self.use_bias:
                 self.trainable_weights = [self.trainable_weights[1]]
             else:
@@ -86,7 +86,7 @@ class TiedEmbeddingsTransposed(Dense):
 
     def get_config(self):
         config = {
-            'tied_to': None,
+            'tied_to': None,  # TODO correct this somehow
         }
         base_config = super().get_config()
         return dict(list(base_config.items()) + list(config.items()))
