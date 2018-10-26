@@ -5,8 +5,8 @@ import keras.backend as K
 from data.vocab import TextEncoder
 from transformer.config import BertConfig
 from transformer.embedding import Embedding
-from keras.layers import Conv1D, Dropout, Add, Input, TimeDistributed, Dense
-from transformer.layers import MultiHeadAttention, Gelu, LayerNormalization, TiedDecoder
+from keras.layers import Conv1D, Dropout, Add, Input, TimeDistributed
+from transformer.layers import MultiHeadAttention, Gelu, LayerNormalization, TiedEmbeddingsTransposed
 
 
 class MultiHeadSelfAttention:
@@ -82,76 +82,6 @@ def load_openai_model(path: str = './openai/model/', ignore_mask: bool = False, 
     return model
 
 
-class LanguageModelingModel(keras.layers.Layer):
-    def __init__(self, compute_logit, embedding_dim, embedding_dropout, vocab_size, max_len, trainable_pos_embedding,
-                 use_one_embedding_dropout, ignore_mask, num_layers, num_heads, d_hid, residual_dropout,
-                 attention_dropout, use_tied_decoder, **kwargs):
-        super().__init__(**kwargs)
-        self.compute_logit = compute_logit
-        self.ignore_mask = ignore_mask
-        self.embedding_dim = embedding_dim
-        self.vocab_size = vocab_size
-        self.embedding_dropout = embedding_dropout
-        self.max_len = max_len
-        self.trainable_pos_embedding = trainable_pos_embedding
-        self.num_layers = num_layers
-        self.num_heads = num_heads
-        self.d_hid = d_hid
-        self.residual_dropout = residual_dropout
-        self.attention_dropout = attention_dropout
-        self.use_tied_decoder = use_tied_decoder
-        self.use_one_embedding_dropout = use_one_embedding_dropout
-        self.embedding_layer = Embedding(embedding_dim, embedding_dropout, vocab_size, max_len, trainable_pos_embedding,
-                                         use_one_embedding_dropout)
-        self.encoder_layers = []
-        for i in range(num_layers):
-            self.encoder_layers.append(
-                EncoderLayer(embedding_dim, num_heads, d_hid, residual_dropout, attention_dropout, ignore_mask, i))
-        if self.compute_logit:
-            if not use_tied_decoder:
-                self.decoder = Conv1D(filters=vocab_size, kernel_size=1, use_bias=False, name='Decoder')
-            else:
-                self.decoder = None
-
-    def get_config(self):
-        config = {
-            'compute_logit': self.compute_logit,
-            'embedding_dim': self.embedding_dim,
-            'embedding_dropout': self.embedding_dropout,
-            'vocab_size': self.vocab_size,
-            'max_len': self.max_len,
-            'trainable_pos_embedding': self.trainable_pos_embedding,
-            'use_one_embedding_dropout': self.use_one_embedding_dropout,
-            'ignore_mask': self.ignore_mask,
-            'num_layers': self.num_layers,
-            'num_heads': self.num_heads,
-            'd_hid': self.d_hid,
-            'residual_dropout': self.residual_dropout,
-            'attention_dropout': self.attention_dropout,
-            'use_tied_decoder': self.use_tied_decoder,
-        }
-        base_config = super().get_config()
-        return dict(list(base_config.items()) + list(config.items()))
-
-    def compute_output_shape(self, input_shape):
-        default_output = (input_shape[0], input_shape[1], self.embedding_dim)
-        if self.compute_logit:
-            return [default_output, (input_shape[0], input_shape[1], self.vocab_size)]
-        return default_output
-
-    def call(self, inputs, **kwargs):
-        x = self.embedding_layer([inputs[0], inputs[1], inputs[2]])
-        mask = None if self.ignore_mask else inputs[3]
-        for encoder in self.encoder_layers:
-            x = encoder(x, mask)
-        if self.compute_logit:
-            if self.decoder:
-                return [x, self.decoder(x)]
-            return [x, K.conv1d(x, K.expand_dims(K.transpose(self.embedding_layer.token_emb.weights[0]), 0), strides=1,
-                                padding='valid', data_format=K.normalize_data_format(None), dilation_rate=1)]
-        return x
-
-
 def create_model(embedding_dim: int = 768, embedding_dropout: float = 0.1,
                  vocab_size: int = 30000 + TextEncoder.SPECIAL_COUNT, max_len: int = 512,
                  trainable_pos_embedding: bool = True, num_heads: int = 12, num_layers: int = 12,
@@ -169,15 +99,6 @@ def create_model(embedding_dim: int = 768, embedding_dropout: float = 0.1,
     pos_ids = Input(batch_shape=(None, max_len), name='PositionInput', tensor=K.variable(
         np.repeat(np.arange(max_len, dtype=np.int64).reshape(1, -1), __test_batch_size, 0)) if debug else None)
     inputs = [tokens, segment_ids, pos_ids] + ([] if ignore_mask else [mask])
-
-    # lm_model = LanguageModelingModel(compute_logit, embedding_dim, embedding_dropout, vocab_size, max_len,
-    #                                  trainable_pos_embedding, use_one_embedding_dropout, ignore_mask, num_layers,
-    #                                  num_heads, d_hid, residual_dropout, attention_dropout, use_tied_decoder)
-    # outputs = lm_model(inputs)
-    # if compute_logit:
-    #     x, logits = outputs
-    # else:
-    #     x = outputs
     embedding_layer = Embedding(embedding_dim, embedding_dropout, vocab_size, max_len, trainable_pos_embedding,
                                 use_one_embedding_dropout)
     x = embedding_layer([tokens, segment_ids, pos_ids])
@@ -185,10 +106,10 @@ def create_model(embedding_dim: int = 768, embedding_dropout: float = 0.1,
         x = EncoderLayer(embedding_dim, num_heads, d_hid, residual_dropout,
                          attention_dropout, ignore_mask, i)(x, mask)
     if compute_logit:
-        if use_tied_decoder:
-            logits = TiedDecoder(vocab_size)([x, embedding_layer.token_emb.weights[0]])
-        else:
-            logits = Conv1D(filters=vocab_size, kernel_size=1, use_bias=False, name='Decoder')(x)
+        logits = TimeDistributed(
+            TiedEmbeddingsTransposed(embedding_layer.token_emb.weights[0] if use_tied_decoder else None,
+                                     units=vocab_size,
+                                     name='Decoder'), name='DecoderTimeDistributed')(x)
         outputs = [x, logits]
     else:
         outputs = x

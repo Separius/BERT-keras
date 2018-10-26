@@ -8,8 +8,8 @@ from keras import backend as K
 from data.vocab import TextEncoder
 from unittest import TestCase, SkipTest
 from data.dataset import create_attention_mask
-from transformer.model import create_model, load_openai_model, LanguageModelingModel
-from transformer.layers import MultiHeadAttention, LayerNormalization, Gelu, TiedDecoder
+from transformer.model import create_model, load_openai_model
+from transformer.layers import MultiHeadAttention, LayerNormalization, Gelu, TiedEmbeddingsTransposed
 
 
 def set_keras_backend(backend):
@@ -68,8 +68,8 @@ class TestTransformer(TestCase):
                     model.save(path)
                     new_model = keras.models.load_model(path, custom_objects={'MultiHeadAttention': MultiHeadAttention,
                                                                               'LayerNormalization': LayerNormalization,
-                                                                              'Gelu': Gelu, 'TiedDecoder': TiedDecoder,
-                                                                              'LanguageModelingModel': LanguageModelingModel})
+                                                                              'Gelu': Gelu,
+                                                                              'TiedEmbeddingsTransposed': TiedEmbeddingsTransposed})
                     TestTransformer.compare_two_models(model, new_model)
                 except Exception as e:
                     raise e
