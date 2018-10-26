@@ -1,5 +1,5 @@
 import keras.backend as K
-from keras.layers import Layer, Dense
+from keras.layers import Layer, Dense, Conv1D
 from keras.initializers import Ones, Zeros
 from transformer.funcs import multihead_attention, gelu
 
@@ -59,6 +59,27 @@ class LayerNormalization(Layer):
         return dict(list(base_config.items()) + list(config.items()))
 
 
+class TiedDecoder(Layer):
+    def __init__(self, vocab_size: int, **kwargs) -> None:
+        self.vocab_size = vocab_size
+        super().__init__(**kwargs)
+
+    def call(self, x, **kwargs):
+        return K.conv1d(x[0], K.expand_dims(K.transpose(x[1]), 0), strides=1, padding='valid',
+                        data_format=K.normalize_data_format(None), dilation_rate=1)
+        # return K.dot(x[0], K.transpose(x[1]))
+
+    def compute_output_shape(self, input_shape):
+        return input_shape[0][0], input_shape[0][1], self.vocab_size
+
+    def get_config(self):
+        config = {
+            'vocab_size': self.vocab_size,
+        }
+        base_config = super().get_config()
+        return dict(list(base_config.items()) + list(config.items()))
+
+
 class Gelu(Layer):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -68,25 +89,3 @@ class Gelu(Layer):
 
     def compute_output_shape(self, input_shape):
         return input_shape
-
-
-class TiedEmbeddingsTransposed(Dense):
-    def __init__(self, tied_to, units: int, use_bias: bool, **kwargs):
-        super().__init__(units, use_bias=use_bias, **kwargs)
-        self.tied_to = None if tied_to is None else K.transpose(tied_to)
-
-    def build(self, input_shape):
-        super().build(input_shape)
-        if self.tied_to is not None:
-            self.kernel = self.tied_to
-            if self.use_bias:
-                self.trainable_weights = [self.trainable_weights[1]]
-            else:
-                self.trainable_weights = []
-
-    def get_config(self):
-        config = {
-            'tied_to': None,  # TODO correct this somehow
-        }
-        base_config = super().get_config()
-        return dict(list(base_config.items()) + list(config.items()))

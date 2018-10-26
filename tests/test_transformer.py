@@ -8,8 +8,8 @@ from keras import backend as K
 from data.vocab import TextEncoder
 from unittest import TestCase, SkipTest
 from data.dataset import create_attention_mask
-from transformer.model import create_model, load_openai_model
-from transformer.layers import MultiHeadAttention, LayerNormalization, Gelu, TiedEmbeddingsTransposed
+from transformer.model import create_model, load_openai_model, LanguageModelingModel
+from transformer.layers import MultiHeadAttention, LayerNormalization, Gelu, TiedDecoder
 
 
 def set_keras_backend(backend):
@@ -29,6 +29,7 @@ class TestTransformer(TestCase):
         self.d_hid = 13
         self.max_len = 24
         # NOTE cntk's error: (Convolution operation requires that kernel dim 12 <= input dim 3 :||, MS is the best)
+        # self.supported_backends = {'tensorflow', 'theano'}
         self.supported_backends = {'tensorflow'}
         self.original_backend = K.backend()
 
@@ -45,7 +46,7 @@ class TestTransformer(TestCase):
         return create_model(ignore_mask=ignore_mask, vocab_size=self.vocab_size,
                             num_heads=self.num_heads, num_layers=self.num_layers,
                             embedding_dim=self.embedding_dim, d_hid=self.d_hid,
-                            max_len=self.max_len, debug=debug, use_tied_decoder=False)
+                            max_len=self.max_len, debug=debug, use_tied_decoder=True)
 
     @staticmethod
     def compare_two_models(model_a, model_b):
@@ -54,34 +55,46 @@ class TestTransformer(TestCase):
             assert (K.eval(x) == K.eval(y)).all()
 
     def test_save_load_all(self):
-        for ignore_mask in [True, False]:
-            model = self.create_small_model(ignore_mask, False)
-            path = '/tmp/{}.model'.format(uuid.uuid4())
+        for backend in self.list_backends():
             try:
-                model.save(path)
-                new_model = keras.models.load_model(path, custom_objects={'MultiHeadAttention': MultiHeadAttention,
-                                                                          'LayerNormalization': LayerNormalization,
-                                                                          'Gelu': Gelu,
-                                                                          'TiedEmbeddingsTransposed': TiedEmbeddingsTransposed})
-                TestTransformer.compare_two_models(model, new_model)
-            except Exception as e:
-                raise e
-            finally:
-                if os.path.exists(path):
-                    os.remove(path)
+                set_keras_backend(backend)
+            except ModuleNotFoundError:
+                continue
+            K.set_learning_phase(0)  # test
+            for ignore_mask in [True, False]:
+                model = self.create_small_model(ignore_mask, False)
+                path = '/tmp/{}.model'.format(uuid.uuid4())
+                try:
+                    model.save(path)
+                    new_model = keras.models.load_model(path, custom_objects={'MultiHeadAttention': MultiHeadAttention,
+                                                                              'LayerNormalization': LayerNormalization,
+                                                                              'Gelu': Gelu, 'TiedDecoder': TiedDecoder,
+                                                                              'LanguageModelingModel': LanguageModelingModel})
+                    TestTransformer.compare_two_models(model, new_model)
+                except Exception as e:
+                    raise e
+                finally:
+                    if os.path.exists(path):
+                        os.remove(path)
 
     def test_save_load_weights(self):
-        for ignore_mask in [True, False]:
-            model = self.create_small_model(ignore_mask, False)
-            path = '/tmp/{}.model'.format(uuid.uuid4())
+        for backend in self.list_backends():
             try:
-                model.save_weights(path)
-                model.load_weights(path)
-            except Exception as e:
-                raise e
-            finally:
-                if os.path.exists(path):
-                    os.remove(path)
+                set_keras_backend(backend)
+            except ModuleNotFoundError:
+                continue
+            K.set_learning_phase(0)  # test
+            for ignore_mask in [True, False]:
+                model = self.create_small_model(ignore_mask, False)
+                path = '/tmp/{}.model'.format(uuid.uuid4())
+                try:
+                    model.save_weights(path)
+                    model.load_weights(path)
+                except Exception as e:
+                    raise e
+                finally:
+                    if os.path.exists(path):
+                        os.remove(path)
 
     def test_different_backends_load_openai(self):
         if len(self.supported_backends) == 1:
@@ -98,7 +111,8 @@ class TestTransformer(TestCase):
                         continue
                     K.set_learning_phase(0)  # test
                     model = load_openai_model(ignore_mask=ignore_mask,
-                                              use_one_embedding_dropout=use_one_embedding_dropout, debug=True)
+                                              use_one_embedding_dropout=use_one_embedding_dropout, debug=True,
+                                              compute_logit=True)
                     results_x[backend] = K.eval(model.outputs[0])
                     results_logit[backend] = K.eval(model.outputs[1])
                     del model
@@ -107,8 +121,8 @@ class TestTransformer(TestCase):
                     for k2 in results_x.keys():
                         if k1 == k2:
                             continue
-                        assert (results_x[k1] == results_x[k2]).all(), 'k1={}, k2={}'.format(k1, k2)
-                        assert (results_logit[k1] == results_logit[k2]).all(), 'k1={}, k2={}'.format(k1, k2)
+                        assert np.allclose(results_x[k1], results_x[k2], atol=1.e-4, rtol=1.e-4)
+                        assert np.allclose(results_logit[k1], results_logit[k2], atol=1.e-4, rtol=1.e-4)
 
     def test_different_backends_work(self):
         for ignore_mask in [True, False]:
@@ -181,16 +195,20 @@ class TestTransformer(TestCase):
         xmb_tf[:, :, 1] += n_vocab + TextEncoder.SPECIAL_COUNT
         tf_result = sess.run(res, {X_train: xmb_tf})
 
-        K.set_learning_phase(0)
-        keras_model = load_openai_model(ignore_mask=False, use_one_embedding_dropout=False, use_decoder_bias=False,
-                                        debug=False,
-                                        max_len=7, compute_logit=False)
-        mask = create_attention_mask(None, True, n_batch_train, n_ctx)
-        k_result = keras_model.predict(
-            [xmb[:, :, 0], np.zeros((n_batch_train, n_ctx), dtype=np.int64), xmb[:, :, 1], mask],
-            batch_size=n_batch_train)
+        for backend in self.list_backends():
+            try:
+                set_keras_backend(backend)
+            except ModuleNotFoundError:
+                continue
+            K.set_learning_phase(0)
+            keras_model = load_openai_model(ignore_mask=False, use_one_embedding_dropout=False,
+                                            debug=False, max_len=7, compute_logit=False)
+            mask = create_attention_mask(None, True, n_batch_train, n_ctx)
+            k_result = keras_model.predict(
+                [xmb[:, :, 0], np.zeros((n_batch_train, n_ctx), dtype=np.int64), xmb[:, :, 1], mask],
+                batch_size=n_batch_train)
 
-        if K.backend() != 'tensorflow':
-            assert np.allclose(tf_result, k_result, atol=1.e-4, rtol=1.e-4)
-        else:
-            assert (tf_result == k_result).all()
+            if K.backend() != 'tensorflow':
+                assert np.allclose(tf_result, k_result, atol=1.e-4, rtol=1.e-4)
+            else:
+                assert (tf_result == k_result).all()
