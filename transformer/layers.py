@@ -1,32 +1,32 @@
 import keras.backend as K
 from keras.layers import Layer, Dense
 from keras.initializers import Ones, Zeros
-from transformer.funcs import multihead_attention, gelu
+from transformer.funcs import gelu, multihead_attention
 
 
 class MultiHeadAttention(Layer):
-    def __init__(self, n_head: int, n_state: int, attention_dropout: float, ignore_mask: bool, **kwargs) -> None:
+    def __init__(self, n_head: int, n_state: int, attention_dropout: float, use_attn_mask: bool, **kwargs) -> None:
         super().__init__(**kwargs)
         self.n_head = n_head
         self.n_state = n_state
         self.attention_dropout = attention_dropout
-        self.ignore_mask = ignore_mask
+        self.use_attn_mask = use_attn_mask
 
     def compute_output_shape(self, input_shape):
-        x = input_shape if self.ignore_mask else input_shape[0]
+        x = input_shape[0] if self.use_attn_mask else input_shape
         return x[0], x[1], x[2] // 3
 
     def call(self, inputs, **kwargs):
-        x = inputs if self.ignore_mask else inputs[0]
-        mask = None if self.ignore_mask else inputs[1]
-        return multihead_attention(x, mask, self.n_head, self.n_state, self.attention_dropout)
+        x = inputs[0] if self.use_attn_mask else inputs
+        attn_mask = inputs[1] if self.use_attn_mask else None
+        return multihead_attention(x, attn_mask, self.n_head, self.n_state, self.attention_dropout)
 
     def get_config(self):
         config = {
             'n_head': self.n_head,
             'n_state': self.n_state,
             'attention_dropout': self.attention_dropout,
-            'ignore_mask': self.ignore_mask,
+            'use_attn_mask': self.use_attn_mask,
         }
         base_config = super().get_config()
         return dict(list(base_config.items()) + list(config.items()))
@@ -82,7 +82,7 @@ class TiedEmbeddingsTransposed(Dense):
 
     def get_config(self):
         config = {
-            'tied_to': None,  # TODO correct this somehow
+            'tied_to': None,  # TODO correct this
         }
         base_config = super().get_config()
         res = dict(list(base_config.items()) + list(config.items()))

@@ -30,46 +30,36 @@ def merge_heads(x):
 
 
 # q,v are B, H, L, C//H ; k is B, H, C//H, L ; mask is B, 1, L, L
-def scaled_dot_product_attention_tf(q, k, v, mask, attention_dropout: float):
+def scaled_dot_product_attention_tf(q, k, v, attn_mask, attention_dropout: float):
     w = K.batch_dot(q, k)  # w is B, H, L, L
     w = w / K.sqrt(K.cast(shape_list(v)[-1], K.floatx()))
-    if mask is not None:
-        w = mask * w + (1.0 - mask) * -1e9
+    if attn_mask is not None:
+        w = attn_mask * w + (1.0 - attn_mask) * -1e9
     w = K.softmax(w)
     w = Dropout(attention_dropout)(w)
     return K.batch_dot(w, v)  # it is B, H, L, C//H [like v]
 
 
-def scaled_dot_product_attention_th(q, k, v, mask, attention_dropout: float):
+def scaled_dot_product_attention_th(q, k, v, attn_mask, attention_dropout: float):
     w = theano_matmul(q, k)
     w = w / K.sqrt(K.cast(shape_list(v)[-1], K.floatx()))
-    if mask is not None:
-        mask = K.repeat_elements(mask, shape_list(v)[1], 1)
-        w = mask * w + (1.0 - mask) * -1e9
+    if attn_mask is not None:
+        attn_mask = K.repeat_elements(attn_mask, shape_list(v)[1], 1)
+        w = attn_mask * w + (1.0 - attn_mask) * -1e9
     w = K.T.exp(w - w.max()) / K.T.exp(w - w.max()).sum(axis=-1, keepdims=True)
     w = Dropout(attention_dropout)(w)
     return theano_matmul(w, v)
 
 
-def simple_dpa(q, k, v):
-    # THIS is the problem, output in tf is B, H, L, L but in theano it's B, H, L, H, L
-    w = K.batch_dot(q, k)  # w is B, H, L, L
-    if K.backend() == 'tensorflow':
-        w = K.softmax(w)
-    else:
-        w = K.T.exp(w - w.max()) / K.T.exp(w - w.max()).sum(axis=-1, keepdims=True)
-    return K.batch_dot(w, v)  # it is B, H, L, C//H [like v]
-
-
-def multihead_attention(x, mask, n_head: int, n_state: int, attention_dropout: float):
+def multihead_attention(x, attn_mask, n_head: int, n_state: int, attention_dropout: float):
     _q, _k, _v = x[:, :, :n_state], x[:, :, n_state:2 * n_state], x[:, :, -n_state:]
     q = split_heads(_q, n_head)  # B, H, L, C//H
     k = split_heads(_k, n_head, k=True)  # B, H, C//H, L
     v = split_heads(_v, n_head)  # B, H, L, C//H
     if K.backend() == 'tensorflow':
-        a = scaled_dot_product_attention_tf(q, k, v, mask, attention_dropout)
+        a = scaled_dot_product_attention_tf(q, k, v, attn_mask, attention_dropout)
     else:
-        a = scaled_dot_product_attention_th(q, k, v, mask, attention_dropout)
+        a = scaled_dot_product_attention_th(q, k, v, attn_mask, attention_dropout)
     return merge_heads(a)
 
 

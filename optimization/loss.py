@@ -4,11 +4,31 @@ from keras.models import Model
 from keras.layers import Input, Layer
 
 
+def tmp(max_len, batch_size):
+    pos_id = K.variable(np.repeat(np.arange(max_len, dtype=np.int64).reshape(1, -1), batch_size, 0))
+
+def tmp2():
+    pass
+    # logits = TimeDistributed(
+    #     TiedEmbeddingsTransposed(embedding_layer.token_emb.weights[0] if use_tied_decoder else None,
+    #                              units=vocab_size,
+    #                              name='Decoder'), name='DecoderTimeDistributed')(x)
+
+
 # tokens(B, L)[to find extraction point], x = (B, L, C)
 # Optional(logits(B, L, V)), lm_targets(B, L), is_next = Optional((B,))
 # masks(B, L)[padding indicator], token_classification = Optional({'t_name': (B, L)})
 # sentence_classification(B), task_weights{lm, next, lm_after, is_next_after==0, others}
 # task_target_sizes = {num_classes + 1}, outputs_logit?
+
+class Task:
+    def __init__(self, name, max_len, is_classification):
+        self.name = name
+        # B(label) ; B, L(classification_target) ; B, L, C (regression_target)
+        # layer (C -> L(num_classes/num_channels)); dropout
+        # target_mask(B or B,L); loss_func; pretrain_weight: 0; supervised_weight: 1
+        self.target = Input(shape=(max_len,))
+
 
 def dummy_loss(y_true, y_pred):
     return y_pred
@@ -45,6 +65,7 @@ def get_loss_network(base_model: Model, ignore_mask: bool, max_len: int):
     segment_ids = Input(batch_shape=(None, max_len))
     pos_ids = Input(batch_shape=(None, max_len))
     base_model_inputs = [tokens, segment_ids, pos_ids] + ([] if ignore_mask else [mask])
+
     h, logit = base_model(base_model_inputs)
     # h is None, max_len, channels; logit is None, max_len, vocab_size
     # TODO extract sentence_level_pred based on h, tokens => None, then compare that with Y and calc loss

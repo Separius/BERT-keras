@@ -1,7 +1,41 @@
 import random
 import numpy as np
 from data.vocab import TextEncoder
-from typing import List, NamedTuple, Optional, Dict
+from typing import List, NamedTuple, Optional, Dict, Callable, Union
+
+
+class TaskWeightScheduler:
+    def __init__(self, active_in_pretrain: bool, active_in_finetune: bool, default_value: float = 1.0):
+        self.active_in_pretrain = active_in_pretrain
+        self.active_in_finetune = active_in_finetune
+        self.default_value = default_value
+
+    def get(self, is_finetune: bool, step: int) -> float:
+        if is_finetune and self.active_in_finetune:
+            return self.default_value
+        if not is_finetune and self.active_in_pretrain:
+            return self.default_value
+        raise ValueError()
+
+
+class TaskMetadata(NamedTuple):
+    name: str  # "lm" will be considered differently (can use tied decoder)
+    num_classes: int
+    dropout: float
+    weight_scheduler: TaskWeightScheduler
+
+
+class TaskData(NamedTuple):
+    target: np.array
+    target_mask: np.array
+
+
+class NeoBertBatch(NamedTuple):
+    tokens: np.array
+    padding_mask: np.array
+    segments: np.array
+    sentence_classification: Dict[TaskData]
+    token_classification: Dict[TaskData]
 
 
 class BertBatch(NamedTuple):

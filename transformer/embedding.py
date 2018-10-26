@@ -1,6 +1,5 @@
 import keras
 import numpy as np
-from typing import Optional
 from data.vocab import TextEncoder
 from transformer.config import BertConfig
 
@@ -18,8 +17,7 @@ def _get_pos_encoding_matrix(max_len: int, d_emb: int) -> np.array:
 class Embedding(keras.layers.Layer):
     def __init__(self, output_dim: int = 768, dropout: float = 0.1, vocab_size: int = 30000 + TextEncoder.SPECIAL_COUNT,
                  max_len: int = 512, trainable_pos_embedding: bool = True,
-                 use_one_dropout: bool = BertConfig.USE_ONE_DROPOUT, token_emb_weight: Optional[np.array] = None,
-                 segment_emb_weight: Optional[np.array] = None, pos_emb_weight: Optional[np.array] = None, **kwargs):
+                 use_one_dropout: bool = BertConfig.USE_ONE_DROPOUT, **kwargs):
         super().__init__(**kwargs)
         self.max_len = max_len
         self.use_one_dropout = use_one_dropout
@@ -29,16 +27,14 @@ class Embedding(keras.layers.Layer):
         self.trainable_pos_embedding = trainable_pos_embedding
 
         self.segment_emb = keras.layers.Embedding(TextEncoder.NUM_SEGMENTS, output_dim, input_length=max_len,
-                                                  name='SegmentEmbedding',
-                                                  weights=None if segment_emb_weight is None else [segment_emb_weight])
+                                                  name='SegmentEmbedding')
         if not trainable_pos_embedding:
             self.pos_emb = keras.layers.Embedding(max_len, output_dim, trainable=False, input_length=max_len,
-                                                  name='PositionEmbedding', weights=[
-                    _get_pos_encoding_matrix(max_len, output_dim) if pos_emb_weight is None else [pos_emb_weight]])
+                                                  name='PositionEmbedding',
+                                                  weights=[_get_pos_encoding_matrix(max_len, output_dim)])
         else:
             self.pos_emb = keras.layers.Embedding(max_len, output_dim, input_length=max_len, name='PositionEmbedding')
-        self.token_emb = keras.layers.Embedding(vocab_size, output_dim, input_length=max_len, name='TokenEmbedding',
-                                                weights=None if token_emb_weight is None else [token_emb_weight])
+        self.token_emb = keras.layers.Embedding(vocab_size, output_dim, input_length=max_len, name='TokenEmbedding')
         self.embedding_dropout = keras.layers.Dropout(dropout, name='EmbeddingDropOut')
         self.add_embeddings = keras.layers.Add(name='AddEmbeddings')
 

@@ -8,7 +8,7 @@ from keras import backend as K
 from data.vocab import TextEncoder
 from unittest import TestCase, SkipTest
 from data.dataset import create_attention_mask
-from transformer.model import create_model, load_openai_model
+from transformer.model import create_transformer, load_openai_transformer
 from transformer.layers import MultiHeadAttention, LayerNormalization, Gelu, TiedEmbeddingsTransposed
 
 
@@ -43,10 +43,10 @@ class TestTransformer(TestCase):
         return [orig_backend] + list(self.supported_backends - {orig_backend})
 
     def create_small_model(self, ignore_mask: bool, debug: bool = True):
-        return create_model(ignore_mask=ignore_mask, vocab_size=self.vocab_size,
-                            num_heads=self.num_heads, num_layers=self.num_layers,
-                            embedding_dim=self.embedding_dim, d_hid=self.d_hid,
-                            max_len=self.max_len, debug=debug, use_tied_decoder=True)
+        return create_transformer(ignore_mask=ignore_mask, vocab_size=self.vocab_size,
+                                  num_heads=self.num_heads, num_layers=self.num_layers,
+                                  embedding_dim=self.embedding_dim, d_hid=self.d_hid,
+                                  max_len=self.max_len, debug=debug, use_tied_decoder=True)
 
     @staticmethod
     def compare_two_models(model_a, model_b):
@@ -110,9 +110,9 @@ class TestTransformer(TestCase):
                     except ModuleNotFoundError:
                         continue
                     K.set_learning_phase(0)  # test
-                    model = load_openai_model(ignore_mask=ignore_mask,
-                                              use_one_embedding_dropout=use_one_embedding_dropout, debug=True,
-                                              compute_logit=True)
+                    model = load_openai_transformer(ignore_mask=ignore_mask,
+                                                    use_one_embedding_dropout=use_one_embedding_dropout, debug=True,
+                                                    compute_logit=True)
                     results_x[backend] = K.eval(model.outputs[0])
                     results_logit[backend] = K.eval(model.outputs[1])
                     del model
@@ -201,8 +201,8 @@ class TestTransformer(TestCase):
             except ModuleNotFoundError:
                 continue
             K.set_learning_phase(0)
-            keras_model = load_openai_model(ignore_mask=False, use_one_embedding_dropout=False,
-                                            debug=False, max_len=7, compute_logit=False)
+            keras_model = load_openai_transformer(ignore_mask=False, use_one_embedding_dropout=False,
+                                                  debug=False, max_len=7, compute_logit=False)
             mask = create_attention_mask(None, True, n_batch_train, n_ctx)
             k_result = keras_model.predict(
                 [xmb[:, :, 0], np.zeros((n_batch_train, n_ctx), dtype=np.int64), xmb[:, :, 1], mask],
