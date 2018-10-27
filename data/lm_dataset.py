@@ -2,15 +2,16 @@ import os
 import random
 import numpy as np
 from data.vocab import TextEncoder
-from typing import List, Optional, Generator, TextIO, Tuple
-from data.dataset import BertBatch, BertSentence, Sentence, pad, msk_sentence, check_sent_len
+from typing import List, Optional, Generator, TextIO, Tuple, Dict
+from data.dataset import Sentence, pad, msk_sentence, check_sent_len, SentenceBatch, TaskDataBatch, TokenTaskData, \
+    SentenceTaskData
 
 
 def lm_generator(text_corpus_address: str, text_encoder: TextEncoder, keep_prob: float = 0.85,
                  mask_prob: float = 0.15 * 0.8, rand_prob: float = 0.15 * 0.1, min_len: Optional[int] = None,
                  max_len: Optional[int] = 512, steps: int = 1000000, file_jump_prob: float = 0.1,
                  mismatch_prob: float = 0.5, num_file_pointers: int = 8, is_causal: bool = False,
-                 use_single_sentence: bool = False, batch_size: int = 256) -> Generator[BertBatch, None, None]:
+                 use_single_sentence: bool = False, batch_size: int = 256) -> Generator[SentenceBatch, None, None]:
     if not (0.0 <= mask_prob <= 1.0 and
             0.0 <= rand_prob <= 1.0 and
             0.0 <= keep_prob <= 1.0 and
@@ -28,17 +29,22 @@ def lm_generator(text_corpus_address: str, text_encoder: TextEncoder, keep_prob:
                                              num_file_pointers)
     batch = []
     for item in generator:
-        batch.append(make_next_token_prediction(item, text_encoder.pad_id) if is_causal else item)
+        batch.append(item)
         if len(batch) == batch_size:
-            yield _create_batch(batch, text_encoder.pad_id, max_len)
+            batch = make_next_token_prediction(batch) if is_causal else batch
+            batch = _create_batch(batch, text_encoder.pad_id, max_len)
+            yield batch
             batch = []
 
 
-def make_next_token_prediction(item: BertSentence, pad_id: int) -> BertSentence:
-    for i in range(len(item.sentence.tokens) - 1):
-        item.sentence.lm_target[i] = item.sentence.tokens[i + 1]
-    item.sentence.lm_target[-1] = pad_id
-    return item
+def make_next_token_prediction(batch: List[Sentence]) -> List[Sentence]:
+    for item in batch:
+        for i in range(len(item.tokens) - 1):
+            item.token_classification['lm'].target[i] = item.tokens[i + 1]
+            item.token_classification['lm'].target_mask[i] = True
+        item.token_classification['lm'].target[-1] = 0
+        item.token_classification['lm'].target_mask[-1] = False
+    return batch
 
 
 def _grab_line(files: List[TextIO], file_size: int, jump_prob: float) -> str:
@@ -53,23 +59,45 @@ def _grab_line(files: List[TextIO], file_size: int, jump_prob: float) -> str:
     return random_line
 
 
-def _create_batch(batch: List[BertSentence], pad_id: int, max_len: Optional[int] = None) -> BertBatch:
-    sort_indices = np.argsort([len(item.segment_id) for item in batch])[::-1]
+def _create_token_task_batch(batch: List[Sentence]) -> Dict[str, TaskDataBatch]:
+    batch_keys = set(batch[0].token_classification.keys())
+    for item in batch:
+        assert batch_keys == set(batch[0].token_classification.keys())
+    result = {}
+    for key in batch_keys:
+        result[key] = TaskDataBatch(
+            np.array([item.token_classification[key].target for item in batch], dtype=np.int32),
+            np.array([item.token_classification[key].target_mask for item in batch], dtype=np.int32))
+    return result
+
+
+def _create_sent_task_batch(batch: List[Sentence]) -> Dict[str, TaskDataBatch]:
+    batch_keys = set(batch[0].sentence_classification.keys())
+    for item in batch:
+        assert batch_keys == set(batch[0].sentence_classification.keys())
+    result = {}
+    for key in batch_keys:
+        result[key] = TaskDataBatch(
+            np.array([item.sentence_classification[key].target for item in batch], dtype=np.int32),
+            np.array([item.sentence_classification[key].target_index for item in batch], dtype=np.int32))
+    return result
+
+
+def _create_batch(batch: List[Sentence], pad_id: int, max_len: Optional[int] = None) -> SentenceBatch:
     if max_len is None:
-        max_len = len(batch[sort_indices[0]].segment_id)
-    sorted_batch = [pad(batch[i], pad_id, max_len) for i in sort_indices]
-    return BertBatch(
-        np.array([bert_sentence.sentence.tokens for bert_sentence in sorted_batch], dtype=np.int64),
-        np.array([bert_sentence.sentence.lm_target for bert_sentence in sorted_batch], dtype=np.int64),
-        np.array([bert_sentence.is_next for bert_sentence in sorted_batch], dtype=np.float32),
-        np.array([bert_sentence.segment_id for bert_sentence in sorted_batch], dtype=np.int64),
-        np.array([bert_sentence.mask for bert_sentence in sorted_batch], dtype=np.int8)
+        max_len = max(len(item.tokens) for item in batch)
+    padded_batch = [pad(item, pad_id, max_len) for item in batch]
+    return SentenceBatch(
+        np.array([item.tokens for item in padded_batch], dtype=np.int32),
+        np.array([item.padding_mask for item in padded_batch], dtype=np.int8),
+        np.array([item.segments for item in padded_batch], dtype=np.int32),
+        _create_token_task_batch(padded_batch), _create_sent_task_batch(padded_batch)
     )
 
 
 def _get_lm_generator_single(text_corpus_address: str, text_encoder: TextEncoder, keep_prob: float, mask_prob: float,
                              rand_prob: float, min_len: Optional[int], max_len: Optional[int], steps: int, jump_prob,
-                             num_files) -> Generator[BertSentence, None, None]:
+                             num_files) -> Generator[Sentence, None, None]:
     counter = 0
     _max_len = float('inf') if max_len is None else max_len - 2
     _min_len = 0 if min_len is None else min_len - 2
@@ -81,10 +109,15 @@ def _get_lm_generator_single(text_corpus_address: str, text_encoder: TextEncoder
             msk_sentence(text_encoder.encode(line.rstrip()), len(text_encoder), keep_prob, mask_prob, rand_prob),
             _min_len, _max_len)
 
-    def _yield_sentence(sent1: Sentence) -> BertSentence:
-        masked_sentence = Sentence([text_encoder.bos_id] + sent1.tokens + [text_encoder.eos_id],
-                                   [text_encoder.pad_id] + sent1.lm_target + [text_encoder.pad_id])
-        return BertSentence(masked_sentence, True, [0] * len(masked_sentence.tokens))
+    def _yield_sentence(sent: Sentence) -> Sentence:
+        lm = sent.token_classification['lm']
+        return Sentence(
+            [text_encoder.bos_id] + sent.tokens + [text_encoder.eos_id],
+            [True] + sent.padding_mask + [True],
+            [0] * len(sent.tokens),
+            {'lm': TokenTaskData([0] + lm.target + [0], [False] + lm.target_mask + [False])},
+            {}
+        )
 
     while True:
         sent = _grab_line(files, file_size, jump_prob)
@@ -102,7 +135,7 @@ def _get_lm_generator_single(text_corpus_address: str, text_encoder: TextEncoder
 def _get_lm_generator_double(text_corpus_address: str, text_encoder: TextEncoder, keep_prob: float, mask_prob: float,
                              rand_prob: float, min_len: Optional[int], max_len: Optional[int], steps: int,
                              mismatch_prob: float, in_memory: bool, jump_prob: float, num_files: int) -> Generator[
-    BertSentence, None, None]:
+    Sentence, None, None]:
     counter = 0
     _max_len = float('inf') if max_len is None else max_len - 3
     _min_len = 0 if min_len is None else min_len - 3
@@ -120,22 +153,29 @@ def _get_lm_generator_double(text_corpus_address: str, text_encoder: TextEncoder
             msk_sentence(text_encoder.encode(line.rstrip()), len(text_encoder), keep_prob, mask_prob, rand_prob),
             _min_len // (2 if half else 1), _max_len // (2 if half else 1), from_end=from_end)
 
-    def _yield_sentence(sent1: Sentence, sent2: Optional[Sentence] = None) -> BertSentence:
+    def _yield_sentence(sent1: Sentence, sent2: Optional[Sentence] = None) -> Sentence:
+        lm = sent1.token_classification['lm']
         if sent2 is None:
             split_idx = random.randint(_min_len // 2, len(sent1.tokens) - _min_len // 2)
-            masked_sentence = Sentence(
-                [text_encoder.bos_id] + sent1.tokens[:split_idx] + [text_encoder.del_id] + sent1.tokens[
-                                                                                           split_idx:] + [
+            return Sentence(
+                [text_encoder.bos_id] + sent1.tokens[:split_idx] + [text_encoder.del_id] + sent1.tokens[split_idx:] + [
                     text_encoder.eos_id],
-                [text_encoder.pad_id] + sent1.lm_target[:split_idx] + [text_encoder.pad_id] + sent1.lm_target[
-                                                                                              split_idx:] + [
-                    text_encoder.pad_id])
-            return BertSentence(masked_sentence, True,
-                                [0] * (split_idx + 2) + [1] * (len(masked_sentence.tokens) - 2 - split_idx))
-        masked_sentence = Sentence(
+                [True] + sent1.padding_mask[:split_idx] + [True] + sent1.padding_mask[split_idx:] + [True],
+                [0] * (split_idx + 2) + [1] * (1 + len(sent1.tokens) - split_idx),
+                {'lm': TokenTaskData([0] + lm.target[:split_idx] + [0] + lm.target[split_idx:] + [0],
+                                     [False] + lm.target_mask[:split_idx] + [False] + lm.target_mask[split_idx:] + [
+                                         False])},
+                {}
+            )
+        lm_ = sent2.token_classification['lm']
+        return Sentence(
             [text_encoder.bos_id] + sent1.tokens + [text_encoder.del_id] + sent2.tokens + [text_encoder.eos_id],
-            [text_encoder.pad_id] + sent1.lm_target + [text_encoder.pad_id] + sent2.lm_target + [text_encoder.pad_id])
-        return BertSentence(masked_sentence, False, [0] * (2 + len(sent1.tokens)) + [1] * (1 + len(sent2.tokens)))
+            [True] + sent1.padding_mask + [True] + sent2.padding_mask + [True],
+            [0] * (2 + len(sent1.tokens)) + [1] * (1 + len(sent2.tokens)),
+            {'lm': TokenTaskData([0] + lm.target + [0] + lm_.target + [0],
+                                 [False] + lm.target_mask + [False] + lm_.target_mask + [False])},
+            {}
+        )
 
     def _calc_encoded(line: str, _all_lines: Optional[List[str]] = None, _files: Optional[List[TextIO]] = None) -> \
             Optional[Tuple[Optional[Sentence], Optional[Sentence]]]:

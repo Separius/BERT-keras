@@ -1,7 +1,7 @@
 import random
 import numpy as np
 from data.vocab import TextEncoder
-from typing import List, NamedTuple, Optional, Dict, Callable, Union
+from typing import List, NamedTuple, Optional, Dict, Any
 
 
 class TaskWeightScheduler:
@@ -25,45 +25,39 @@ class TaskMetadata(NamedTuple):
     weight_scheduler: TaskWeightScheduler
 
 
-class TaskData(NamedTuple):
-    target: np.array
-    target_mask: np.array
+class TokenTaskData(NamedTuple):
+    target: List[int]
+    target_mask: List[bool]
 
 
-class NeoBertBatch(NamedTuple):
-    tokens: np.array
-    padding_mask: np.array
-    segments: np.array
-    sentence_classification: Dict[TaskData]
-    token_classification: Dict[TaskData]
+class SentenceTaskData(NamedTuple):
+    target: int
+    target_index: int
 
 
-class BertBatch(NamedTuple):
-    tokens: np.array  # batch_size, seq (token_id)
-    lm_targets: np.array  # batch_size, seq (vocab_size+TextEncoder.PAD_OFFSET should be ignored)
-    is_next: np.array  # batch_size (0 or 1)
-    segment_ids: np.array  # batch_size, seq (0 or 1)
-    masks: np.array  # batch_size, seq (0 or 1, zeros should be ignored (1 == use))
-    token_classification: Optional[Dict[str, np.array]] = None  # task_name: batch_size, seq(num_classes + 1 for ignore)
-    sentence_classification: Optional[Dict[str, np.array]] = None  # task_name: batch_size
+class TaskDataBatch(NamedTuple):
+    target: np.array  # (int32) batch_size for sentence level tasks or batch_size, seq_len for token level tasks
+    target_mask: np.array  # (int8) same as target (will ignore zeros)
 
 
 class Sentence(NamedTuple):
     tokens: List[int]
-    lm_target: List[int]
-    token_target: Optional[Dict[str, List[int]]] = None  # used for PoS and NER
-    sentence_target: Optional[Dict[str, int]] = None  # used for sentiment and classification
+    padding_mask: List[bool]
+    segments: Optional[List[int]] = None
+    token_classification: Optional[Dict[str, TokenTaskData]] = None
+    sentence_classification: Optional[Dict[str, SentenceTaskData]] = None
 
 
-class BertSentence(NamedTuple):
-    sentence: Sentence
-    is_next: bool
-    segment_id: List[int]
-    mask: Optional[List[bool]] = None  # used to indicate padding(not causality)
+class SentenceBatch(NamedTuple):
+    tokens: np.array  # (int32) batch_size, seq_len
+    padding_mask: np.array  # (int8) batch_size, seq_len (0 or 1, zeros should be ignored (1 == use, 0 == padded))
+    segments: np.array  # (int32) batch_size, seq_len
+    token_classification: Dict[str, TaskDataBatch]  # task_name('lm' is special) : task_data
+    sentence_classification: Dict[str, TaskDataBatch]  # task_name : task_data
 
 
-def create_attention_mask(pad_mask: Optional[np.array], is_causal: bool = True, batch_size: Optional[int] = 256,
-                          length: Optional[int] = 512) -> np.array:
+def create_attention_mask(pad_mask: Optional[np.array], is_causal: bool = True,
+                          batch_size: Optional[int] = 256, length: Optional[int] = 512) -> np.array:
     if pad_mask is not None:
         assert pad_mask.ndim == 2
         batch_size, length = pad_mask.shape
@@ -86,35 +80,80 @@ def create_attention_mask(pad_mask: Optional[np.array], is_causal: bool = True, 
     return b
 
 
-def check_sent_len(sentence: Sentence, min_len: Optional[int], max_len: Optional[int], from_end: bool = False) -> \
+def _trim_seq(seq: Optional[List[Any]], len: int, from_end: bool = True) -> Optional[List[Any]]:
+    if seq is None:
+        return None
+    return seq[:len] if from_end else seq[-len:]
+
+
+def _trim_sentence_target(task_dict: Dict[str, SentenceTaskData], desired_len: int,
+                          orig_seq_len: int, from_end: bool = True) -> Dict[
+    str, SentenceTaskData]:
+    trimmed_task_dict = {}
+    for k, v in task_dict.items():
+        target_index = v.target_index
+        if orig_seq_len > desired_len:
+            if from_end and target_index > desired_len:
+                target_index = -1
+            if not from_end:
+                target_index -= orig_seq_len - desired_len
+        if target_index >= 0:
+            trimmed_task_dict[k] = SentenceTaskData(v.target, target_index)
+    return trimmed_task_dict
+
+
+def _trim_sentence(sentence: Sentence, length: int, from_end: bool = True):
+    return Sentence(_trim_seq(sentence.tokens, length, from_end),
+                    _trim_seq(sentence.padding_mask, length, from_end),
+                    _trim_seq(sentence.segments, length, from_end),
+                    {k: TokenTaskData(_trim_seq(v.target, length, from_end),
+                                      _trim_seq(v.target_mask, length, from_end)) for k, v in
+                     sentence.token_classification.items()} if sentence.token_classification is not None else {},
+                    _trim_sentence_target(sentence.sentence_classification, length, len(sentence.tokens),
+                                          from_end) if sentence.sentence_classification is not None else {})
+
+
+def check_sent_len(sentence: Sentence, min_len: Optional[int], max_len: Optional[int], from_end: bool = True) -> \
         Optional[Sentence]:
     if min_len is not None and len(sentence.tokens) < min_len:
         return None
     if max_len is not None and len(sentence.tokens) > max_len:
-        if from_end:
-            return Sentence(sentence.tokens[-max_len:], sentence.lm_target[-max_len:])
-        else:
-            return Sentence(sentence.tokens[:max_len], sentence.lm_target[:max_len])
+        return _trim_sentence(sentence, max_len, from_end)
+    return sentence
 
 
 def msk_sentence(sentence: List[int], vocab_size: int, keep_prob: float,
                  mask_prob: float, rand_prob: float) -> Sentence:
-    prediction_target = [vocab_size + TextEncoder.PAD_OFFSET] * len(sentence)
+    prediction_target = [0] * len(sentence)
+    prediction_mask = [False] * len(sentence)
     new_sent = sentence.copy()
     for i in range(len(sentence)):
         probability = random.random()
         if probability > keep_prob:
             prediction_target[i] = sentence[i]
+            prediction_mask[i] = True
             if probability < (mask_prob + keep_prob):
                 new_sent[i] = vocab_size + TextEncoder.MSK_OFFSET
             elif probability < (mask_prob + rand_prob + keep_prob):
                 new_sent[i] = random.randrange(vocab_size)
-    return Sentence(new_sent, prediction_target)
+    return Sentence(new_sent, [True] * len(new_sent), None,
+                    token_classification={'lm': TokenTaskData(prediction_target, prediction_mask)},
+                    sentence_classification={})
 
 
-def pad(bert_sent: BertSentence, pad_id: int, max_len: int) -> BertSentence:
-    pad_size = max_len - len(bert_sent.segment_id)
-    return BertSentence(Sentence(bert_sent.sentence.tokens + [pad_id] * pad_size,
-                                 bert_sent.sentence.lm_target + [pad_id] * pad_size),
-                        bert_sent.is_next, bert_sent.segment_id + [pad_id] * pad_size,
-                        [True] * (max_len - pad_size) + [False] * pad_size)
+def _pad_seq(seq: List[Any], pad_token: Any, pad_len: int, is_post_pad: bool = True) -> List[Any]:
+    return (seq + [pad_token] * pad_len) if is_post_pad else ([pad_token] * pad_len + seq)
+
+
+def pad(sentence: Sentence, pad_id: int, max_len: int, is_post_pad: bool = True) -> Sentence:
+    pad_len = max_len - len(sentence.tokens)
+    if pad_len == 0:
+        return sentence
+    return Sentence(_pad_seq(sentence.tokens, pad_id, pad_len, is_post_pad),
+                    _pad_seq(sentence.padding_mask, False, pad_len, is_post_pad),
+                    _pad_seq(sentence.segments, 0, pad_len, is_post_pad),
+                    {k: TokenTaskData(_pad_seq(v.target, 0, pad_len, is_post_pad),
+                                      _pad_seq(v.target_mask, False, pad_len, is_post_pad)) for k, v in
+                     sentence.token_classification.items()} if sentence.token_classification is not None else {},
+                    {k: SentenceTaskData(v.target, v.target_index + (0 if is_post_pad else pad_len)) for k, v in
+                     sentence.sentence_classification.items()} if sentence.sentence_classification is not None else {})

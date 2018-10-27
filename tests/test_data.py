@@ -1,6 +1,5 @@
 import os
 import re
-import copy
 import random
 import tempfile
 import numpy as np
@@ -8,7 +7,8 @@ from unittest import TestCase
 from typing import Optional, List
 from data.vocab import TextEncoder
 from data.lm_dataset import _create_batch, _grab_line, make_next_token_prediction
-from data.dataset import create_attention_mask, BertSentence, Sentence, pad, msk_sentence
+from data.dataset import (create_attention_mask, Sentence, pad, check_sent_len,
+                          msk_sentence, SentenceTaskData, TokenTaskData)
 
 
 class TestData(TestCase):
@@ -22,83 +22,113 @@ class TestData(TestCase):
     def generate_random_seq(self, length: int, max: Optional[int] = None) -> List[int]:
         return [random.randrange(self.vocab_size if max is None else max) for i in range(length)]
 
-    def get_a_bert_sentence(self, length: int) -> BertSentence:
-        return BertSentence(Sentence(self.generate_random_seq(length), self.generate_random_seq(length)), True,
-                            self.generate_random_seq(length, 2))
+    def generate_random_mask(self, length: int) -> List[bool]:
+        return [random.random() < 0.5 for _ in range(length)]
+
+    def generate_sentence(self, length: int) -> Sentence:
+        return Sentence(self.generate_random_seq(length), [True] * length, [0] * length,
+                        {'lm': TokenTaskData(self.generate_random_seq(length),
+                                             self.generate_random_mask(length))}, {})
 
     def test_pad(self):
-        bert_sent = self.get_a_bert_sentence(5)
+        bert_sent = self.generate_sentence(5)
+        lm_orig = bert_sent.token_classification['lm']
         pad_id = self.vocab_size + TextEncoder.PAD_OFFSET
         padded_sent = pad(bert_sent, pad_id, 10)
-        assert len(padded_sent.mask) == len(padded_sent.segment_id) == len(padded_sent.sentence.lm_target) == len(
-            padded_sent.sentence.tokens) == 10
+        lm = padded_sent.token_classification['lm']
+        assert len(padded_sent.padding_mask) == len(padded_sent.segments) == len(lm.target_mask) == len(
+            padded_sent.tokens) == len(lm.target) == 10
         for i in range(5):
-            assert padded_sent.mask[i]
-            assert padded_sent.segment_id[i] == bert_sent.segment_id[i]
-            assert padded_sent.sentence.lm_target[i] == bert_sent.sentence.lm_target[i]
-            assert padded_sent.sentence.tokens[i] == bert_sent.sentence.tokens[i]
+            assert padded_sent.padding_mask[i]
+            assert padded_sent.segments[i] == bert_sent.segments[i]
+            assert lm.target[i] == lm_orig.target[i]
+            assert lm.target_mask[i] == lm_orig.target_mask[i]
+            assert padded_sent.tokens[i] == bert_sent.tokens[i]
         for i in range(5, 10):
-            assert not padded_sent.mask[i]
-            assert padded_sent.segment_id[i] == pad_id
-            assert padded_sent.sentence.lm_target[i] == pad_id
-            assert padded_sent.sentence.tokens[i] == pad_id
+            assert not padded_sent.padding_mask[i]
+            assert padded_sent.segments[i] == 0
+            assert lm.target[i] == 0
+            assert lm.target_mask[i] == 0
+            assert padded_sent.tokens[i] == pad_id
 
     def test_create_batch(self):
-        batch_size = 32
         max_len = 64
-        sentences = []
         pad_id = self.vocab_size + TextEncoder.PAD_OFFSET
-        for i in range(batch_size):
-            sentences.append(self.get_a_bert_sentence(random.randint(1, max_len - 5)))
-        for i in range(2):
-            if i == 0:
-                batch = _create_batch(sentences, pad_id, max_len)
-            else:
-                batch = _create_batch(sentences, pad_id)
-                max_len = max([len(sent.segment_id) for sent in sentences])
-            assert batch.masks.shape == (batch_size, max_len)
-            assert batch.masks.dtype == np.int8
-            assert batch.segment_ids.shape == (batch_size, max_len)
-            assert batch.segment_ids.dtype == np.int64
-            assert batch.tokens.shape == (batch_size, max_len)
-            assert batch.tokens.dtype == np.int64
-            assert batch.is_next.shape == (batch_size,)
-            assert batch.is_next.dtype == np.float32
-            assert batch.lm_targets.shape == (batch_size, max_len)
-            assert batch.lm_targets.dtype == np.int64
+        for batch_size in [32, 1]:
+            sentences = []
+            for i in range(batch_size):
+                sentences.append(self.generate_sentence(random.randint(1, max_len - 5)))
+            for i in range(2):
+                if i == 0:
+                    batch = _create_batch(sentences, pad_id, max_len)
+                else:
+                    batch = _create_batch(sentences, pad_id)
+                    max_len = max([len(sent.tokens) for sent in sentences])
+                assert batch.tokens.shape == (batch_size, max_len)
+                assert batch.tokens.dtype == np.int32
+                assert batch.segments.shape == (batch_size, max_len)
+                assert batch.segments.dtype == np.int32
+                assert batch.padding_mask.shape == (batch_size, max_len)
+                assert batch.padding_mask.dtype == np.int8
+                assert batch.token_classification['lm'].target.shape == (batch_size, max_len)
+                assert batch.token_classification['lm'].target.dtype == np.int32
+                assert batch.token_classification['lm'].target_mask.shape == (batch_size, max_len)
+                assert batch.token_classification['lm'].target_mask.dtype == np.int32
 
     def test_msk_sentence(self):
         seq_len = 32
         sentence = self.generate_random_seq(seq_len)
 
         masked_sentence = msk_sentence(sentence, vocab_size=self.vocab_size, keep_prob=1.0, mask_prob=0.0,
-                                        rand_prob=0.0)
-        assert len(sentence) == len(masked_sentence.tokens) == len(masked_sentence.lm_target)
+                                       rand_prob=0.0)
+        assert len(sentence) == len(masked_sentence.tokens) == len(
+            masked_sentence.token_classification['lm'].target) == len(
+            masked_sentence.token_classification['lm'].target_mask)
         for i in range(seq_len):
             assert masked_sentence.tokens[i] == sentence[i]
-            assert masked_sentence.lm_target[i] == self.vocab_size + TextEncoder.PAD_OFFSET
+            assert masked_sentence.token_classification['lm'].target[i] == 0
+            assert masked_sentence.token_classification['lm'].target_mask[i] == 0
 
         masked_sentence = msk_sentence(sentence, vocab_size=self.vocab_size, keep_prob=0.0, mask_prob=1.0,
-                                        rand_prob=0.0)
-        assert len(sentence) == len(masked_sentence.tokens) == len(masked_sentence.lm_target)
+                                       rand_prob=0.0)
+        assert len(sentence) == len(masked_sentence.tokens) == len(
+            masked_sentence.token_classification['lm'].target) == len(
+            masked_sentence.token_classification['lm'].target_mask)
         for i in range(seq_len):
             assert masked_sentence.tokens[i] == self.vocab_size + TextEncoder.MSK_OFFSET
-            assert masked_sentence.lm_target[i] == sentence[i]
+            assert masked_sentence.token_classification['lm'].target[i] == sentence[i]
+            assert masked_sentence.token_classification['lm'].target_mask[i] == 1
 
         masked_sentence = msk_sentence(sentence, vocab_size=self.vocab_size, keep_prob=0.0, mask_prob=0.0,
-                                        rand_prob=0.0)
-        assert len(sentence) == len(masked_sentence.tokens) == len(masked_sentence.lm_target)
+                                       rand_prob=0.0)
+        assert len(sentence) == len(masked_sentence.tokens) == len(
+            masked_sentence.token_classification['lm'].target) == len(
+            masked_sentence.token_classification['lm'].target_mask)
         for i in range(seq_len):
             assert masked_sentence.tokens[i] == sentence[i]
-            assert masked_sentence.lm_target[i] == sentence[i]
+            assert masked_sentence.token_classification['lm'].target[i] == sentence[i]
+            assert masked_sentence.token_classification['lm'].target_mask[i] == 1
 
         sentence = [index + self.vocab_size for index in sentence]
         masked_sentence = msk_sentence(sentence, vocab_size=self.vocab_size, keep_prob=0.0, mask_prob=0.0,
-                                        rand_prob=1.0)
-        assert len(sentence) == len(masked_sentence.tokens) == len(masked_sentence.lm_target)
+                                       rand_prob=1.0)
+        assert len(sentence) == len(masked_sentence.tokens) == len(
+            masked_sentence.token_classification['lm'].target) == len(
+            masked_sentence.token_classification['lm'].target_mask)
         for i in range(seq_len):
             assert masked_sentence.tokens[i] != sentence[i]
-            assert masked_sentence.lm_target[i] == sentence[i]
+            assert masked_sentence.token_classification['lm'].target[i] == sentence[i]
+            assert masked_sentence.token_classification['lm'].target_mask[i] == 1
+
+    def test_make_causal(self):
+        pad_id = self.vocab_size + TextEncoder.PAD_OFFSET
+        orig_sentence = self.generate_sentence(5)
+        result = _create_batch(make_next_token_prediction([orig_sentence]), pad_id)
+        lm = result.token_classification['lm']
+        assert (np.array(orig_sentence.tokens)[1:] == lm.target[0, :-1]).all()
+        assert lm.target[0, -1] == 0
+        assert (lm.target_mask[0, :-1] == 1).all()
+        assert lm.target_mask[0, -1] == 0
 
     def test_grab_line(self):
         fp1 = tempfile.TemporaryFile(mode='w+')
@@ -129,13 +159,6 @@ class TestData(TestCase):
             assert pattern.match(line) is not None
         fp1.close()
         fp2.close()
-
-    def test_make_causal(self):
-        pad_id = self.vocab_size + TextEncoder.PAD_OFFSET
-        orig_sentence = self.get_a_bert_sentence(5)
-        result = make_next_token_prediction(copy.deepcopy(orig_sentence), pad_id=pad_id)
-        assert (np.array(orig_sentence.sentence.tokens)[1:] == np.array(result.sentence.lm_target)[:-1]).all()
-        assert result.sentence.lm_target[-1] == pad_id
 
     def test_create_mask(self):
         batch_size = 3
@@ -191,3 +214,51 @@ class TestData(TestCase):
                         [1, 1, 1, 1, 1]], dtype=np.float32)
         for i in range(3):
             assert (mask[i, 0] == tri).all()
+
+    def test_check_sent_len(self):
+        orig_length = 10
+        class_target = 2
+        original_sent = self.generate_sentence(orig_length)
+        original_sent.sentence_classification['sc'] = SentenceTaskData(class_target, 0)
+        original_sent.sentence_classification['sc_ok'] = SentenceTaskData(class_target + 1, 5)
+        assert check_sent_len(original_sent, min_len=10, max_len=None) is not None
+        assert check_sent_len(original_sent, min_len=11, max_len=None) is None
+        res = check_sent_len(original_sent, min_len=None, max_len=7, from_end=False)
+        assert len(res.tokens) == len(res.padding_mask) == len(res.token_classification['lm'].target) == len(
+            res.token_classification['lm'].target_mask) == 7
+        assert res.tokens[0] == original_sent.tokens[3]
+        assert set(res.sentence_classification.keys()) == {'sc_ok'}
+        assert res.sentence_classification['sc_ok'].target == class_target + 1
+        assert res.sentence_classification['sc_ok'].target_index == 5 - 3
+
+    # this is not a "unit" test :D
+    def test_generation(self):
+        def dummy_lm_generator(vocab_size, pad_id, max_len, is_causal, batch_size, steps, eos_id):  # identity
+            def dummy_generator():
+                for _ in range(steps):
+                    seq_len = random.randint(1, max_len - 1)
+                    tokens = [random.randrange(vocab_size) for i in range(seq_len)]
+                    tokens[-1] = eos_id
+                    yield Sentence(
+                        tokens=tokens,
+                        padding_mask=[True] * seq_len,
+                        segments=[0] * seq_len,
+                        token_classification={'lm': TokenTaskData(tokens, [False] * seq_len)},
+                        sentence_classification={'count': SentenceTaskData(seq_len % 2, seq_len - 1)}
+                    )
+
+            generator = dummy_generator()
+            batch = []
+            for item in generator:
+                batch.append(item)
+                if len(batch) == batch_size:
+                    batch = make_next_token_prediction(batch) if is_causal else batch
+                    batch = _create_batch(batch, pad_id, max_len)
+                    yield batch
+                    batch = []
+
+        lm_generator = dummy_lm_generator(self.vocab_size, self.vocab_size + TextEncoder.PAD_OFFSET,
+                                          32, True, 32, 100, self.vocab_size + TextEncoder.EOS_OFFSET)
+        for i, sentence_batch in enumerate(lm_generator):
+            assert sentence_batch.tokens.shape == (32, 32)
+        assert i == 100 // 32 - 1
