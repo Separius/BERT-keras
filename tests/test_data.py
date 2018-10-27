@@ -6,9 +6,9 @@ import numpy as np
 from unittest import TestCase
 from typing import Optional, List
 from data.vocab import TextEncoder
-from data.lm_dataset import _create_batch, _grab_line, make_next_token_prediction
 from data.dataset import (create_attention_mask, Sentence, pad, check_sent_len,
                           msk_sentence, SentenceTaskData, TokenTaskData)
+from data.lm_dataset import _create_batch, _grab_line, make_next_token_prediction, dummy_lm_generator
 
 
 class TestData(TestCase):
@@ -231,34 +231,8 @@ class TestData(TestCase):
         assert res.sentence_classification['sc_ok'].target == class_target + 1
         assert res.sentence_classification['sc_ok'].target_index == 5 - 3
 
-    # this is not a "unit" test :D
     def test_generation(self):
-        def dummy_lm_generator(vocab_size, pad_id, max_len, is_causal, batch_size, steps, eos_id):  # identity
-            def dummy_generator():
-                for _ in range(steps):
-                    seq_len = random.randint(1, max_len - 1)
-                    tokens = [random.randrange(vocab_size) for i in range(seq_len)]
-                    tokens[-1] = eos_id
-                    yield Sentence(
-                        tokens=tokens,
-                        padding_mask=[True] * seq_len,
-                        segments=[0] * seq_len,
-                        token_classification={'lm': TokenTaskData(tokens, [False] * seq_len)},
-                        sentence_classification={'count': SentenceTaskData(seq_len % 2, seq_len - 1)}
-                    )
-
-            generator = dummy_generator()
-            batch = []
-            for item in generator:
-                batch.append(item)
-                if len(batch) == batch_size:
-                    batch = make_next_token_prediction(batch) if is_causal else batch
-                    batch = _create_batch(batch, pad_id, max_len)
-                    yield batch
-                    batch = []
-
-        lm_generator = dummy_lm_generator(self.vocab_size, self.vocab_size + TextEncoder.PAD_OFFSET,
-                                          32, True, 32, 100, self.vocab_size + TextEncoder.EOS_OFFSET)
+        lm_generator = dummy_lm_generator(self.vocab_size, 32, 32, 100)
         for i, sentence_batch in enumerate(lm_generator):
             assert sentence_batch.tokens.shape == (32, 32)
         assert i == 100 // 32 - 1
