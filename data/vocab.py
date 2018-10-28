@@ -28,7 +28,7 @@ class TextEncoder:
     POS_START_OFFSET = 7
 
     def __init__(self, vocab_size: int):
-        # NOTE you MUST always put unk at 0, then regular vocab, then special chars, and then pos
+        # NOTE you MUST always put unk at 0, then regular vocab, then special tokens, and then pos
         self.vocab_size = vocab_size
         self.unk_id = 0
         self.pad_id = vocab_size + self.PAD_OFFSET

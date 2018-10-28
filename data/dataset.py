@@ -59,8 +59,8 @@ class SentenceBatch(NamedTuple):
     sentence_classification: Dict[str, TaskDataBatch]  # task_name : task_data
 
 
-def create_attention_mask(pad_mask: Optional[np.array], is_causal: bool = True,
-                          batch_size: Optional[int] = 256, length: Optional[int] = 512) -> np.array:
+def create_attention_mask(pad_mask: Optional[np.array], is_causal: bool,
+                          batch_size: Optional[int]=None, length: Optional[int]=None) -> np.array:
     if pad_mask is not None:
         assert pad_mask.ndim == 2
         batch_size, length = pad_mask.shape
@@ -83,10 +83,10 @@ def create_attention_mask(pad_mask: Optional[np.array], is_causal: bool = True,
     return b
 
 
-def _trim_seq(seq: Optional[List[Any]], len: int, from_end: bool = True) -> Optional[List[Any]]:
+def _trim_seq(seq: Optional[List[Any]], length: int, from_end: bool = True) -> Optional[List[Any]]:
     if seq is None:
         return None
-    return seq[:len] if from_end else seq[-len:]
+    return seq[:length] if from_end else seq[-length:]
 
 
 def _trim_sentence_target(task_dict: Dict[str, SentenceTaskData], desired_len: int,
@@ -105,7 +105,7 @@ def _trim_sentence_target(task_dict: Dict[str, SentenceTaskData], desired_len: i
     return trimmed_task_dict
 
 
-def _trim_sentence(sentence: Sentence, length: int, from_end: bool = True):
+def _trim_sentence(sentence: Sentence, length: int, from_end: bool = True) -> Sentence:
     return Sentence(_trim_seq(sentence.tokens, length, from_end),
                     _trim_seq(sentence.padding_mask, length, from_end),
                     _trim_seq(sentence.segments, length, from_end),

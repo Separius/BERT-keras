@@ -1,7 +1,6 @@
 import keras
 import numpy as np
 from data.vocab import TextEncoder
-from transformer.config import BertConfig
 
 
 def _get_pos_encoding_matrix(max_len: int, d_emb: int) -> np.array:
@@ -17,7 +16,7 @@ def _get_pos_encoding_matrix(max_len: int, d_emb: int) -> np.array:
 class Embedding(keras.layers.Layer):
     def __init__(self, output_dim: int = 768, dropout: float = 0.1, vocab_size: int = 30000 + TextEncoder.SPECIAL_COUNT,
                  max_len: int = 512, trainable_pos_embedding: bool = True,
-                 use_one_dropout: bool = BertConfig.USE_ONE_DROPOUT, **kwargs):
+                 use_one_dropout: bool = False, **kwargs):
         super().__init__(**kwargs)
         self.max_len = max_len
         self.use_one_dropout = use_one_dropout

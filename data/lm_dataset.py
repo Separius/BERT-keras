@@ -4,8 +4,8 @@ import numpy as np
 from contextlib import ExitStack
 from data.vocab import TextEncoder
 from typing import List, Optional, Generator, TextIO, Tuple, Dict
-from data.dataset import Sentence, pad, msk_sentence, check_sent_len, SentenceBatch, TaskDataBatch, TokenTaskData, \
-    SentenceTaskData
+from data.dataset import (Sentence, pad, msk_sentence, check_sent_len,
+                          SentenceBatch, TaskDataBatch, TokenTaskData, SentenceTaskData)
 
 
 def lm_generator(text_corpus_address: str, text_encoder: TextEncoder, keep_prob: float = 0.85,
@@ -17,7 +17,7 @@ def lm_generator(text_corpus_address: str, text_encoder: TextEncoder, keep_prob:
             0.0 <= rand_prob <= 1.0 and
             0.0 <= keep_prob <= 1.0 and
             0.0 <= file_jump_prob <= 1.0):
-        raise ValueError('all probablities should be between [0, 1]')
+        raise ValueError('all probablities should be between zero and one')
     if mask_prob + rand_prob + keep_prob > 1.0:
         raise ValueError('sum of mask, rand and keep probablities should be less than 1.0')
     if use_single_sentence:

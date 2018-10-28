@@ -3,7 +3,6 @@ import keras
 import numpy as np
 import keras.backend as K
 from data.vocab import TextEncoder
-from transformer.config import BertConfig
 from transformer.embedding import Embedding
 from keras.layers import Conv1D, Dropout, Add, Input
 from transformer.layers import MultiHeadAttention, Gelu, LayerNormalization
@@ -77,9 +76,9 @@ def load_openai_transformer(path: str = './openai/model/', use_attn_mask: bool =
 def create_transformer(embedding_dim: int = 768, embedding_dropout: float = 0.1,
                        vocab_size: int = 30000 + TextEncoder.SPECIAL_COUNT, max_len: int = 512,
                        trainable_pos_embedding: bool = True, num_heads: int = 12, num_layers: int = 12,
-                       attention_dropout: float = 0.1, use_one_embedding_dropout: bool = BertConfig.USE_ONE_DROPOUT,
+                       attention_dropout: float = 0.1, use_one_embedding_dropout: bool = False,
                        d_hid: int = 768 * 4, residual_dropout: float = 0.1,
-                       use_attn_mask: bool = BertConfig.USE_ATTN_MASK) -> keras.Model:
+                       use_attn_mask: bool = True) -> keras.Model:
     tokens = Input(batch_shape=(None, max_len), name='token_input', dtype='int32')
     segment_ids = Input(batch_shape=(None, max_len), name='segment_input', dtype='int32')
     pos_ids = Input(batch_shape=(None, max_len), name='position_input', dtype='int32')
