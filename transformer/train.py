@@ -3,7 +3,7 @@ import numpy as np
 import keras.backend as K
 from typing import List, Generator
 from keras.layers import Dropout, Input, Lambda, TimeDistributed, Dense
-from data.dataset import TaskMetadata, SentenceBatch, create_attention_mask
+from data.dataset import TaskMetadata, SentenceBatch, create_attention_mask, generate_pos_ids
 
 
 def _mask_loss(y_true, y_pred, y_mask, element_wise_loss):
@@ -84,8 +84,7 @@ def train_model(base_model: keras.Model, is_causal: bool, tasks_meta_data: List[
     def get_generator(sentence_generator: Generator[SentenceBatch, None, None], is_pretrain: bool):
         for i, batch in enumerate(sentence_generator):
             batch_size, seq_len = batch.tokens.shape
-            x = [batch.tokens, batch.segments,
-                 np.repeat(np.arange(max_len, dtype=np.int32).reshape(1, -1), batch_size, 0)]
+            x = [batch.tokens, batch.segments, generate_pos_ids(batch_size, max_len)]
             y = []
             if uses_attn_mask:
                 x.append(create_attention_mask(batch.padding_mask, is_causal))

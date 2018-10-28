@@ -65,7 +65,7 @@ def load_openai_transformer(path: str = './openai/model/', use_attn_mask: bool =
     init_params[1] = np.concatenate(
         (init_params[1], np.random.randn(TextEncoder.SPECIAL_COUNT, 768).astype(np.float32) * 0.02), axis=0)
     init_params = [np.zeros((TextEncoder.NUM_SEGMENTS, 768)).astype(np.float32)] + init_params  # segment embedding
-    model = create_transformer(embedding_dim=768, embedding_dropout=0.1, vocab_size=40478 + TextEncoder.SPECIAL_COUNT,
+    model = create_transformer(embedding_dim=768, embedding_dropout=0.1, vocab_size=40478,
                                max_len=min(512, max_len), use_attn_mask=use_attn_mask, trainable_pos_embedding=True,
                                num_heads=12, num_layers=12, use_one_embedding_dropout=use_one_embedding_dropout,
                                d_hid=4 * 768, attention_dropout=0.1, residual_dropout=0.1)
@@ -74,11 +74,12 @@ def load_openai_transformer(path: str = './openai/model/', use_attn_mask: bool =
 
 
 def create_transformer(embedding_dim: int = 768, embedding_dropout: float = 0.1,
-                       vocab_size: int = 30000 + TextEncoder.SPECIAL_COUNT, max_len: int = 512,
+                       vocab_size: int = 30000, max_len: int = 512,
                        trainable_pos_embedding: bool = True, num_heads: int = 12, num_layers: int = 12,
                        attention_dropout: float = 0.1, use_one_embedding_dropout: bool = False,
                        d_hid: int = 768 * 4, residual_dropout: float = 0.1,
                        use_attn_mask: bool = True) -> keras.Model:
+    vocab_size += TextEncoder.SPECIAL_COUNT
     tokens = Input(batch_shape=(None, max_len), name='token_input', dtype='int32')
     segment_ids = Input(batch_shape=(None, max_len), name='segment_input', dtype='int32')
     pos_ids = Input(batch_shape=(None, max_len), name='position_input', dtype='int32')

@@ -1,5 +1,5 @@
 import os
-from typing import List
+from typing import List, Optional
 
 try:
     import sentencepiece as spm
@@ -48,7 +48,7 @@ class TextEncoder:
 
 
 class SentencePieceTextEncoder(TextEncoder):
-    def __init__(self, text_corpus_address: str, model_name: str = 'spm',
+    def __init__(self, text_corpus_address: Optional[str], model_name: str = 'spm',
                  vocab_size: int = 30000, spm_model_type: str = 'unigram') -> None:
         super().__init__(vocab_size)
         if not os.path.exists('{}.model'.format(model_name)):

@@ -60,7 +60,7 @@ class SentenceBatch(NamedTuple):
 
 
 def create_attention_mask(pad_mask: Optional[np.array], is_causal: bool,
-                          batch_size: Optional[int]=None, length: Optional[int]=None) -> np.array:
+                          batch_size: Optional[int] = None, length: Optional[int] = None) -> np.array:
     if pad_mask is not None:
         assert pad_mask.ndim == 2
         batch_size, length = pad_mask.shape
@@ -160,3 +160,7 @@ def pad(sentence: Sentence, pad_id: int, max_len: int, is_post_pad: bool = True)
                      sentence.token_classification.items()} if sentence.token_classification is not None else {},
                     {k: SentenceTaskData(v.target, v.target_index + (0 if is_post_pad else pad_len)) for k, v in
                      sentence.sentence_classification.items()} if sentence.sentence_classification is not None else {})
+
+
+def generate_pos_ids(batch_size: int, max_len: int) -> np.array:
+    return np.repeat(np.arange(max_len, dtype=np.int32).reshape(1, -1), batch_size, 0)

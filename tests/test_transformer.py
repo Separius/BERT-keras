@@ -43,7 +43,7 @@ class TestTransformer(TestCase):
         return [orig_backend] + list(self.supported_backends - {orig_backend})
 
     def create_small_model(self, use_attn_mask: bool):
-        return create_transformer(vocab_size=self.vocab_size + TextEncoder.SPECIAL_COUNT,
+        return create_transformer(vocab_size=self.vocab_size,
                                   num_heads=self.num_heads, num_layers=self.num_layers,
                                   embedding_dim=self.embedding_dim, d_hid=self.d_hid,
                                   max_len=self.max_len, use_attn_mask=use_attn_mask)
