@@ -1,5 +1,5 @@
 import keras.backend as K
-from keras.layers import Layer, Dense
+from keras.layers import Layer
 from keras.initializers import Ones, Zeros
 from transformer.funcs import gelu, multihead_attention
 
@@ -68,23 +68,3 @@ class Gelu(Layer):
 
     def compute_output_shape(self, input_shape):
         return input_shape
-
-
-class TiedEmbeddingsTransposed(Dense):
-    def __init__(self, tied_to, units: int, **kwargs):
-        super().__init__(units, use_bias=False, **kwargs)
-        self.tied_to = None if tied_to is None else K.transpose(tied_to)
-
-    def build(self, input_shape):
-        super().build(input_shape)
-        if self.tied_to is not None:
-            self.kernel = self.tied_to
-
-    def get_config(self):
-        config = {
-            'tied_to': None,  # TODO correct this
-        }
-        base_config = super().get_config()
-        res = dict(list(base_config.items()) + list(config.items()))
-        del res['use_bias']
-        return res

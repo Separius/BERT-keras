@@ -2,10 +2,8 @@ import keras
 import numpy as np
 import keras.backend as K
 from typing import List, Generator
-from data.lm_dataset import dummy_lm_generator
-from transformer.model import create_transformer
 from keras.layers import Dropout, Input, Lambda, TimeDistributed, Dense
-from data.dataset import TaskMetadata, SentenceBatch, create_attention_mask, TextEncoder, TaskWeightScheduler
+from data.dataset import TaskMetadata, SentenceBatch, create_attention_mask
 
 
 def _mask_loss(y_true, y_pred, y_mask, element_wise_loss):
@@ -26,14 +24,21 @@ def sparse_gather(y_pred, target_indices, task_name):
     return Lambda(lambda x: K.gather(x[0], K.cast(x[1], 'int32')), name=task_name + '_gather')([clf_h, target_indices])
 
 
-def model_loss(y_true, y_pred):
+def pass_through_loss(y_true, y_pred):
     return y_pred
 
 
-def train_model(base_model: keras.Model, is_causal: bool,
-                tasks_meta_data: List[TaskMetadata], pretrain_generator, finetune_generator,
-                pretrain_optimizer='adam', pretrain_steps: int = 1000000, pretrain_callbacks=None,
-                finetune_optimizer='adam', finetune_steps: int = 10000, finetune_callbacks=None):
+def load_model(weights_path: str, base_model: keras.Model, tasks_meta_data: List[TaskMetadata]):
+    model = train_model(base_model, is_causal=False, tasks_meta_data=tasks_meta_data, pretrain_generator=None,
+                        finetune_generator=None)
+    model.load_weights(weights_path)
+    return model
+
+
+def train_model(base_model: keras.Model, is_causal: bool, tasks_meta_data: List[TaskMetadata], pretrain_generator,
+                finetune_generator, pretrain_epochs: int = 1, pretrain_optimizer='adam', pretrain_steps: int = 1000000,
+                pretrain_callbacks=None, finetune_epochs: int = 1, finetune_optimizer='adam',
+                finetune_steps: int = 10000, finetune_callbacks=None):
     token_input = base_model.inputs[0]
     segment_input = base_model.inputs[1]
     position_input = base_model.inputs[2]
@@ -102,7 +107,7 @@ def train_model(base_model: keras.Model, is_causal: bool,
                     x.append(
                         np.repeat(np.array(
                             [all_tasks[task_name].weight_scheduler.get(is_pretrain, i)]), batch_size,
-                            0))  # [np.array()] didn't work
+                            0))
                     y.append(np.repeat(np.array([0.0]), batch_size, 0))
             yield x, y
 
@@ -123,37 +128,13 @@ def train_model(base_model: keras.Model, is_causal: bool,
                 _outputs.append(task_nodes[task_name]['loss'])
         _generator = get_generator(pretrain_generator if is_pretrain else finetune_generator, is_pretrain)
         _model = keras.Model(inputs=_inputs, outputs=_outputs)
-        _model.compile(pretrain_optimizer if is_pretrain else finetune_optimizer, loss=model_loss)
+        _model.compile(pretrain_optimizer if is_pretrain else finetune_optimizer, loss=pass_through_loss)
         _model.fit_generator(_generator, steps_per_epoch=pretrain_steps if is_pretrain else finetune_steps, verbose=2,
                              callbacks=pretrain_callbacks if is_pretrain else finetune_callbacks, shuffle=False,
-                             epochs=5)
-        # _model.fit_generator(_generator, steps_per_epoch=pretrain_steps if is_pretrain else finetune_steps,
-        #                      callbacks=pretrain_callbacks if is_pretrain else finetune_callbacks, shuffle=False)
+                             epochs=pretrain_epochs if is_pretrain else finetune_epochs)
 
     if pretrain_generator is not None:
         train_step(True)
     if finetune_generator is not None:
         train_step(False)
     return keras.Model(inputs=base_model.inputs + sent_level_mask_inputs, outputs=all_logits)
-
-
-if __name__ == '__main__':
-    vocab_size = 23
-    num_heads = 2
-    num_layers = 2
-    embedding_dim = 6
-    d_hid = 12
-    max_len = 7
-    model = create_transformer(vocab_size=vocab_size + TextEncoder.SPECIAL_COUNT,
-                               num_heads=num_heads, num_layers=num_layers,
-                               embedding_dim=embedding_dim, d_hid=d_hid,
-                               max_len=max_len, use_attn_mask=True)
-    batch_size = 3
-    steps = 1000000
-    generator = dummy_lm_generator(vocab_size, max_len, batch_size, steps, False)
-    # model = train_model(model, True, [TaskMetadata('lm', True, vocab_size + TextEncoder.SPECIAL_COUNT, 0.1,
-    #                                                TaskWeightScheduler(True, False))], generator,
-    #                     None, pretrain_steps=100)
-    model = train_model(model, True, [
-        TaskMetadata('lm', True, vocab_size + TextEncoder.SPECIAL_COUNT, 0.1, TaskWeightScheduler(True, False)),
-        TaskMetadata('count', False, 2, 0.1, TaskWeightScheduler(True, True))], generator, None, pretrain_steps=100)

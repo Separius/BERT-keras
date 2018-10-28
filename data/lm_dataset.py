@@ -217,7 +217,10 @@ def dummy_lm_generator(vocab_size: int, max_len: int, batch_size: int, steps: in
                 segments=[0] * seq_len,
                 token_classification={
                     'lm': TokenTaskData(tokens if easy else [random.randrange(vocab_size) for i in range(seq_len)],
-                                        [True] * seq_len)},
+                                        [True] * seq_len),
+                    'lm_untied': TokenTaskData(
+                        tokens if easy else [random.randrange(vocab_size) for i in range(seq_len)], [True] * seq_len)
+                },
                 sentence_classification={'count': SentenceTaskData(seq_len % 2, seq_len - 1)}
             )
 
