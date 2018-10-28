@@ -205,7 +205,7 @@ def _get_lm_generator_double(text_corpus_address: str, text_encoder: TextEncoder
             yield _yield_sentence(encoded1, encoded2)
 
 
-def dummy_lm_generator(vocab_size: int, max_len: int, batch_size: int, steps: int):  # identity
+def dummy_lm_generator(vocab_size: int, max_len: int, batch_size: int, steps: int, easy: bool = True):  # identity
     def dummy_generator():
         for _ in range(steps):
             seq_len = random.randint(1, max_len - 1)
@@ -215,7 +215,9 @@ def dummy_lm_generator(vocab_size: int, max_len: int, batch_size: int, steps: in
                 tokens=tokens,
                 padding_mask=[True] * seq_len,
                 segments=[0] * seq_len,
-                token_classification={'lm': TokenTaskData(tokens, [False] * seq_len)},
+                token_classification={
+                    'lm': TokenTaskData(tokens if easy else [random.randrange(vocab_size) for i in range(seq_len)],
+                                        [True] * seq_len)},
                 sentence_classification={'count': SentenceTaskData(seq_len % 2, seq_len - 1)}
             )
 

@@ -43,7 +43,7 @@ class TestTransformer(TestCase):
         return [orig_backend] + list(self.supported_backends - {orig_backend})
 
     def create_small_model(self, use_attn_mask: bool):
-        return create_transformer(vocab_size=self.vocab_size,
+        return create_transformer(vocab_size=self.vocab_size + TextEncoder.SPECIAL_COUNT,
                                   num_heads=self.num_heads, num_layers=self.num_layers,
                                   embedding_dim=self.embedding_dim, d_hid=self.d_hid,
                                   max_len=self.max_len, use_attn_mask=use_attn_mask)
@@ -58,11 +58,15 @@ class TestTransformer(TestCase):
         model = self.create_small_model(use_attn_mask=True)
         batch_size = 3
         steps = 1000000
-        generator = dummy_lm_generator(self.vocab_size, self.max_len, batch_size, steps)
+        generator = dummy_lm_generator(self.vocab_size, self.max_len, batch_size, steps, False)
         # generator = None
-        train_model(model, True, [TaskMetadata('lm', True, self.vocab_size, 0.1, TaskWeightScheduler(True, False)),
-                                  TaskMetadata('count', False, 2, 0.1, TaskWeightScheduler(True, True))], generator,
+        train_model(model, True, [TaskMetadata('lm', True, self.vocab_size + TextEncoder.SPECIAL_COUNT, 0.1,
+                                               TaskWeightScheduler(True, False))], generator,
                     None, pretrain_steps=100)
+        # train_model(model, True, [TaskMetadata('lm', True, self.vocab_size + TextEncoder.SPECIAL_COUNT, 0.1,
+        #                                        TaskWeightScheduler(True, False)),
+        #                           TaskMetadata('count', False, 2, 0.1, TaskWeightScheduler(True, True))], generator,
+        #             None, pretrain_steps=100)
 
     # def test_save_load_all(self):
     #     for backend in self.list_backends():
