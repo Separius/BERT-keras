@@ -38,7 +38,7 @@ def load_model(weights_path: str, base_model: keras.Model, tasks_meta_data: List
 def train_model(base_model: keras.Model, is_causal: bool, tasks_meta_data: List[TaskMetadata], pretrain_generator,
                 finetune_generator, pretrain_epochs: int = 1, pretrain_optimizer='adam', pretrain_steps: int = 1000000,
                 pretrain_callbacks=None, finetune_epochs: int = 1, finetune_optimizer='adam',
-                finetune_steps: int = 10000, finetune_callbacks=None):
+                finetune_steps: int = 10000, finetune_callbacks=None, verbose: int = 0):
     token_input = base_model.inputs[0]
     segment_input = base_model.inputs[1]
     position_input = base_model.inputs[2]
@@ -129,9 +129,9 @@ def train_model(base_model: keras.Model, is_causal: bool, tasks_meta_data: List[
         _generator = get_generator(pretrain_generator if is_pretrain else finetune_generator, is_pretrain)
         _model = keras.Model(inputs=_inputs, outputs=_outputs)
         _model.compile(pretrain_optimizer if is_pretrain else finetune_optimizer, loss=pass_through_loss)
-        _model.fit_generator(_generator, steps_per_epoch=pretrain_steps if is_pretrain else finetune_steps, verbose=2,
-                             callbacks=pretrain_callbacks if is_pretrain else finetune_callbacks, shuffle=False,
-                             epochs=pretrain_epochs if is_pretrain else finetune_epochs)
+        _model.fit_generator(_generator, steps_per_epoch=pretrain_steps if is_pretrain else finetune_steps,
+                             verbose=verbose, callbacks=pretrain_callbacks if is_pretrain else finetune_callbacks,
+                             shuffle=False, epochs=pretrain_epochs if is_pretrain else finetune_epochs)
 
     if pretrain_generator is not None:
         train_step(True)

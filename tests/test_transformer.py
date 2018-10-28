@@ -64,7 +64,7 @@ class TestTransformer(TestCase):
                                         TaskWeightScheduler(False, True)),
                            TaskMetadata('count', False, 2, 0.1, TaskWeightScheduler(True, True))]
         model = train_model(model, True, tasks_meta_data, generator, generator, pretrain_steps=100, pretrain_epochs=3,
-                            finetune_steps=50, finetune_epochs=2)
+                            finetune_steps=50, finetune_epochs=2, verbose=0)
         path = '/tmp/{}.model'.format(uuid.uuid4())
         model.save_weights(path)
         loaded_model = load_model(path, self.create_small_model(use_attn_mask=True), tasks_meta_data)
