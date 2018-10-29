@@ -31,3 +31,6 @@ model = load_model('my_awesome_model', encoder_model) # load it later and use it
 * TaskWeightScheduler: for training we might want to start with language modeling and smoothly move to classification, they can be easily implemented with this class
 * attention_mask: with this you can 1.make your model causal 2.ignore paddings 3.do your crazy idea :D
 * special_tokens: pad, start, end, delimiter, mask
+
+## Ownership
+[Neiron](neiron.ai)
