@@ -7,7 +7,7 @@ Keras implementation of Google BERT(Bidirectional Encoder Representations from T
 text_encoder = MyTextEncoder(**my_text_encoder_params) # you create a text encoder (sentence piece and openai's bpe are included)
 lm_generator = lm_generator(text_encoder, **lm_generator_params) # this is essentially your data reader (single sentence and double sentence reader with masking and is_next label are included)
 task_meta_datas = [lm_task, classification_task, pos_task] # these are your tasks (the lm_generator must generate the labels for these tasks too)
-encoder_model = create_transformer(**encoder_params) # or you could simply load_openai()
+encoder_model = create_transformer(**encoder_params) # or you could simply load_openai() or you could write your own encoder(BiLSTM for example)
 trained_model = train_model(encoder_model, task_meta_datas, lm_generator, **training_params) # it does both pretraing and finetuning
 trained_model.save_weights('my_awesome_model') # save it
 model = load_model('my_awesome_model', encoder_model) # load it later and use it!
@@ -20,10 +20,10 @@ model = load_model('my_awesome_model', encoder_model) # load it later and use it
 * You can use the data generator and task meta data for most of the NLP tasks and you can use them in other frameworks
 * There are some unit tests for both dataset and transformer model (read them if you are not sure about something)
 * Even tough I don't like my keras code, it's readable :)
-* You can use other encoders, like LSTM or BiQRNN for training if you follow the contract (have same inputs and outputs as transformer encoder)
+* You can use other encoders, like LSTM or BiQRNN for training if you follow the model contract (have the same inputs and outputs as transformer encoder)
 * What will happen when the official code is out?, data reader will still be usable and we might even be able to import those weights into this library (I think we will, cause the actual transformer network is really easy to implement)
 * Why keras? pytorch version is already out! (BTW you can use this data generator for training and fine-tuning that model too)
-* I strongly advise you to read the tutorial.ipynb (I don't like notebooks so this is a poorly designed notebook, but read it though)
+* I strongly advise you to read the tutorial.ipynb (I don't like notebooks so this is a poorly designed notebook, but read it anyway)
 
 ## important code concepts
 * Task: there are two general tasks, sentence level tasks(like is_next and sentiment analysis), and token level tasks(like PoS and NER)

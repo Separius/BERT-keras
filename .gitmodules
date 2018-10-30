@@ -1,3 +1,6 @@
 [submodule "openai"]
 	path = openai
 	url = https://github.com/Separius/finetune-transformer-lm.git
+[submodule "google"]
+	path = google
+	url = https://github.com/google-research/bert.git
