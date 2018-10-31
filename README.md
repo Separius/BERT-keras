@@ -33,4 +33,4 @@ model = load_model('my_awesome_model', encoder_model) # load it later and use it
 * special_tokens: pad, start, end, delimiter, mask
 
 ## Ownership
-[Neiron](neiron.ai)
+[Neiron](https://www.neiron.ai)
