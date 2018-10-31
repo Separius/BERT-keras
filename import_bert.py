@@ -1,15 +1,104 @@
 import numpy as np
 import tensorflow as tf
+from google.modeling import BertConfig, BertModel, get_assigment_map_from_checkpoint
+
+base_location = '/home/sepehr/Downloads/uncased_L-12_H-768_A-12/'
+bert_config = BertConfig.from_json_file(base_location + 'bert_config.json')
+init_checkpoint = base_location + 'bert_model.ckpt'
+
+
+def model_fn_builder(bert_config, init_checkpoint, layer_indexes):
+    """Returns `model_fn` closure for TPUEstimator."""
+
+    def model_fn(features, labels, mode, params):  # pylint: disable=unused-argument
+        """The `model_fn` for TPUEstimator."""
+
+        unique_ids = features["unique_ids"]
+        input_ids = features["input_ids"]
+        input_mask = features["input_mask"]
+        input_type_ids = features["input_type_ids"]
+
+        model = BertModel(
+            config=bert_config,
+            is_training=False,
+            input_ids=input_ids,
+            input_mask=input_mask,
+            token_type_ids=input_type_ids,
+            use_one_hot_embeddings=False)
+
+        if mode != tf.estimator.ModeKeys.PREDICT:
+            raise ValueError("Only PREDICT modes are supported: %s" % (mode))
+
+        tvars = tf.trainable_variables()
+        scaffold_fn = None
+        (assignment_map, _) = get_assigment_map_from_checkpoint(
+            tvars, init_checkpoint)
+        tf.train.init_from_checkpoint(init_checkpoint, assignment_map)
+
+        predictions = {
+            "unique_id": unique_ids,
+            "seq_out": model.get_sequence_output()
+        }
+
+        output_spec = tf.contrib.tpu.TPUEstimatorSpec(
+            mode=mode, predictions=predictions, scaffold_fn=scaffold_fn)
+        return output_spec
+
+    return model_fn
+
+
+batch_size = 3
+seq_len = 5
+xmb = np.random.randint(0, 10000, (batch_size, seq_len))
+xmb2 = np.ones((batch_size, seq_len), dtype=np.int32)
+xmb3 = np.ones((batch_size, seq_len), dtype=np.int32)
+
+
+# xmb2 = np.random.randint(0, 2, (batch_size, seq_len))
+# xmb3 = np.random.randint(0, 2, (batch_size, seq_len))
+
+
+def input_fn(params):
+    d = tf.data.Dataset.from_tensor_slices({
+        "unique_ids":
+            tf.constant([0, 1, 2], shape=[batch_size], dtype=tf.int32),
+        "input_ids":
+            tf.constant(
+                xmb, shape=[batch_size, seq_len],
+                dtype=tf.int32),
+        "input_mask":
+            tf.constant(
+                xmb2,
+                shape=[batch_size, seq_len],
+                dtype=tf.int32),
+        "input_type_ids":
+            tf.constant(
+                xmb3,
+                shape=[batch_size, seq_len],
+                dtype=tf.int32),
+    })
+
+    d = d.batch(batch_size=batch_size, drop_remainder=False)
+    return d
+
+
+model_fn = model_fn_builder(bert_config=bert_config, init_checkpoint=init_checkpoint, layer_indexes=[0])
+is_per_host = tf.contrib.tpu.InputPipelineConfig.PER_HOST_V2
+run_config = tf.contrib.tpu.RunConfig(master=None, tpu_config=tf.contrib.tpu.TPUConfig(num_shards=8,
+                                                                                       per_host_input_for_training=is_per_host))
+estimator = tf.contrib.tpu.TPUEstimator(use_tpu=False, model_fn=model_fn, config=run_config,
+                                        predict_batch_size=batch_size)
+tf_result = [r['seq_out'] for r in estimator.predict(input_fn)]
+
 from data.dataset import TextEncoder
 from transformer.model import create_transformer
 
-base_location = '/home/sepehr/Downloads/uncased_L-12_H-768_A-12/'
 pre_ckpt = base_location + 'bert_model.ckpt'
 
 var_names = tf.train.list_variables(pre_ckpt)
 check_point = tf.train.load_checkpoint(pre_ckpt)
 my_model = create_transformer(embedding_layer_norm=True, neg_inf=-10000.0, vocab_size=30522 - TextEncoder.SPECIAL_COUNT,
-                              ln_epsilon=1e-12)
+                              ln_epsilon=1e-12, max_len=seq_len)
 # our weights: seg, pos, token, emb_ln_g, emb_ln_b
 #   per layer: qkv_w, qkv_b, aproj_w, aproj_b, att_ln_g, att_ln_b,
 #               fc_w, fc_b, fc_proj_w, fc_proj_b, fc_ln_g, fc_ln_b
@@ -23,6 +112,7 @@ weights = [np.zeros(w.shape) for w in my_model.weights]
 for var_name, _ in var_names:
     w_id = None
     qkv = None
+    is_pos_embedding = False
     unsqueeze = False
     parts = var_name.split('/')
     if parts[1] == 'embeddings':
@@ -31,6 +121,7 @@ for var_name, _ in var_names:
             w_id = 0
         elif n == 'position_embeddings':
             w_id = 1
+            is_pos_embedding = True
         elif n == 'word_embeddings':
             w_id = 2
         elif n == 'gamma':
@@ -83,8 +174,13 @@ for var_name, _ in var_names:
 
     if w_id is not None and qkv is None:
         print(var_name, ' -> ', my_model.weights[w_id].name)
-        weights[w_id][:] = check_point.get_tensor(var_name) if not unsqueeze else check_point.get_tensor(var_name)[
-            None, ...]
+        if is_pos_embedding:
+            weights[w_id][:seq_len, :] = check_point.get_tensor(var_name)[:seq_len,
+                                         :] if not unsqueeze else check_point.get_tensor(var_name)[
+                                                                  None, :seq_len, :]
+        else:
+            weights[w_id][:] = check_point.get_tensor(var_name) if not unsqueeze else check_point.get_tensor(var_name)[
+                None, ...]
     elif w_id is not None:
         print(var_name, ' -> ', my_model.weights[w_id].name, '::', qkv)
         p = {'q': 0, 'k': 1, 'v': 2}[qkv]
@@ -100,31 +196,12 @@ for var_name, _ in var_names:
     else:
         print('not mapped: ', var_name)  # TODO pooler, cls/predictions, cls/seq_relationship
 
-from google.modeling import BertModel, BertConfig, get_assigment_map_from_checkpoint
+import keras.backend as K
 
-sess = tf.Session()
-bert_config = BertConfig.from_json_file(base_location + 'bert_config.json')
-batch_size = 3
-seq_len = 11
-input_ids = tf.placeholder(tf.int32, [batch_size, seq_len])
-input_mask = tf.placeholder(tf.int32, [batch_size, seq_len])
-segment_ids = tf.placeholder(tf.int32, [batch_size, seq_len])
+K.set_learning_phase(0)
+from data.dataset import create_attention_mask, generate_pos_ids
 
+pos = generate_pos_ids(batch_size, seq_len)
 
-def get_google_model(input_ids, input_mask, segment_ids):
-    google_model = BertModel(config=bert_config, is_training=False, input_ids=input_ids, input_mask=input_mask,
-                             token_type_ids=segment_ids, use_one_hot_embeddings=False)
-    return google_model.get_sequence_output()
-
-
-res = get_google_model(input_ids, input_mask, segment_ids)
-tvars = tf.trainable_variables()
-(assignment_map, initialized_variable_names) = get_assigment_map_from_checkpoint(tvars,
-                                                                                 pre_ckpt)
-tf.train.init_from_checkpoint(pre_ckpt, assignment_map)
-sess.run(tf.global_variables_initializer())  # TODO this is wrong
-sess.run(tf.local_variables_initializer())
-xmb = np.random.randint(0, 10000, (batch_size, seq_len))
-xmb2 = np.random.randint(0, 2, (batch_size, seq_len))
-xmb3 = np.random.randint(0, 2, (batch_size, seq_len))
-tf_result = sess.run(res, {input_ids: xmb, input_mask: xmb2, segment_ids: xmb3})
+k_output = my_model.predict([xmb, xmb3, pos, create_attention_mask(xmb2, False, None, None)])
+print(k_output[0] - tf_result[0])
