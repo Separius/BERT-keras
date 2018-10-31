@@ -5,12 +5,14 @@ from transformer.funcs import gelu, multihead_attention
 
 
 class MultiHeadAttention(Layer):
-    def __init__(self, n_head: int, n_state: int, attention_dropout: float, use_attn_mask: bool, **kwargs) -> None:
+    def __init__(self, n_head: int, n_state: int, attention_dropout: float, use_attn_mask: bool, neg_inf: float,
+                 **kwargs) -> None:
         super().__init__(**kwargs)
         self.n_head = n_head
         self.n_state = n_state
         self.attention_dropout = attention_dropout
         self.use_attn_mask = use_attn_mask
+        self.neg_inf = neg_inf
 
     def compute_output_shape(self, input_shape):
         x = input_shape[0] if self.use_attn_mask else input_shape
@@ -19,7 +21,7 @@ class MultiHeadAttention(Layer):
     def call(self, inputs, **kwargs):
         x = inputs[0] if self.use_attn_mask else inputs
         attn_mask = inputs[1] if self.use_attn_mask else None
-        return multihead_attention(x, attn_mask, self.n_head, self.n_state, self.attention_dropout)
+        return multihead_attention(x, attn_mask, self.n_head, self.n_state, self.attention_dropout, self.neg_inf)
 
     def get_config(self):
         config = {
@@ -27,6 +29,7 @@ class MultiHeadAttention(Layer):
             'n_state': self.n_state,
             'attention_dropout': self.attention_dropout,
             'use_attn_mask': self.use_attn_mask,
+            'neg_inf': self.neg_inf,
         }
         base_config = super().get_config()
         return dict(list(base_config.items()) + list(config.items()))

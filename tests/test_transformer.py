@@ -182,7 +182,6 @@ class TestTransformer(TestCase):
                 return h
 
         X_train = tf.placeholder(tf.int32, [n_batch_train, n_ctx, 2])
-        X = tf.placeholder(tf.int32, [None, 2, n_ctx, 2])
         res = model(X_train)
 
         params = find_trainable_variables('model')
