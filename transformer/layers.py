@@ -1,3 +1,4 @@
+import math
 import keras.backend as K
 from keras.layers import Layer
 from keras.initializers import Ones, Zeros
@@ -63,11 +64,25 @@ class LayerNormalization(Layer):
 
 
 class Gelu(Layer):
-    def __init__(self, **kwargs):
+    def __init__(self, accurate: bool = False, **kwargs):
         super().__init__(**kwargs)
+        self.accurate = accurate
 
     def call(self, inputs, **kwargs):
-        return gelu(inputs)
+        if not self.accurate:
+            return gelu(inputs)
+        if K.backend() == 'tensorflow':
+            erf = K.tf.erf
+        else:
+            erf = K.T.erf
+        return inputs * 0.5 * (1.0 + erf(inputs / math.sqrt(2.0)))
 
     def compute_output_shape(self, input_shape):
         return input_shape
+
+    def get_config(self):
+        config = {
+            'accurate': self.accurate,
+        }
+        base_config = super().get_config()
+        return dict(list(base_config.items()) + list(config.items()))

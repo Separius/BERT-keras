@@ -59,8 +59,8 @@ class SentenceBatch(NamedTuple):
     sentence_classification: Dict[str, TaskDataBatch]  # task_name : task_data
 
 
-def create_attention_mask(pad_mask: Optional[np.array], is_causal: bool,
-                          batch_size: Optional[int] = None, length: Optional[int] = None) -> np.array:
+def create_attention_mask(pad_mask: Optional[np.array], is_causal: bool, batch_size: Optional[int] = None,
+                          length: Optional[int] = None, bert_attention: bool = False) -> np.array:
     if pad_mask is not None:
         assert pad_mask.ndim == 2
         batch_size, length = pad_mask.shape
@@ -74,7 +74,10 @@ def create_attention_mask(pad_mask: Optional[np.array], is_causal: bool,
         _pad_mask = pad_mask[..., np.newaxis]
         _pad_mask = np.repeat(_pad_mask, length, 2)
         _pad_mask_t = np.transpose(_pad_mask, [0, 2, 1])
-        tmp = _pad_mask * _pad_mask_t
+        if bert_attention:
+            tmp = _pad_mask_t
+        else:
+            tmp = _pad_mask * _pad_mask_t
         tmp = tmp[:, np.newaxis, ...]
         if b is None:
             b = tmp.astype(np.float32)
