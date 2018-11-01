@@ -1,6 +1,8 @@
 # BERT-keras
 Keras implementation of Google BERT(Bidirectional Encoder Representations from Transformers), using pretrained OpenAI Transformer model for initialization!
 
+*Update*: you can know import the [official weights](https://github.com/google-research/bert#pre-trained-models)! 
+
 ## How to use it?
 ```python
 # this is a pseudo code you can read an actual working example in tutorial.ipynb
@@ -14,8 +16,9 @@ model = load_model('my_awesome_model', encoder_model) # load it later and use it
 ```
 
 ## Notes
-* The general idea of this library is to use OpenAI's pretrained model as a good initialization point so you can train your own model in no time. (without TPUs)
+* The general idea of this library is to use OpenAI's/Google's pretrained model for transfer learning
 * Loading OpenAI model is tested with both tensorflow and theano as backend
+* Loading a Bert model is not possible on theano backend yet but the tf version is working
 * Training and fine-tuning a model is not possible with theano backend
 * You can use the data generator and task meta data for most of the NLP tasks and you can use them in other frameworks
 * There are some unit tests for both dataset and transformer model (read them if you are not sure about something)

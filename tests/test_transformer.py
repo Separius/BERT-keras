@@ -9,7 +9,8 @@ from data.vocab import TextEncoder
 from unittest import TestCase, SkipTest
 from data.lm_dataset import dummy_lm_generator
 from transformer.train import train_model, load_model
-from transformer.model import create_transformer, load_openai_transformer
+from transformer.model import create_transformer
+from transformer.load import load_openai_transformer
 from transformer.layers import MultiHeadAttention, LayerNormalization, Gelu
 from data.dataset import create_attention_mask, TaskMetadata, TaskWeightScheduler
 
