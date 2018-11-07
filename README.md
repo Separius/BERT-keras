@@ -1,7 +1,7 @@
 # BERT-keras
 Keras implementation of Google BERT(Bidirectional Encoder Representations from Transformers), using pretrained OpenAI Transformer model for initialization!
 
-*Update*: you can know import the [official weights](https://github.com/google-research/bert#pre-trained-models)! 
+*Update*: you can know import the [official weights](https://github.com/google-research/bert#pre-trained-models) both the monolingual and multilingual models!  
 
 ## How to use it?
 ```python
@@ -18,13 +18,13 @@ model = load_model('my_awesome_model', encoder_model) # load it later and use it
 ## Notes
 * The general idea of this library is to use OpenAI's/Google's pretrained model for transfer learning
 * Loading OpenAI model is tested with both tensorflow and theano as backend
-* Loading a Bert model is not possible on theano backend yet but the tf version is working
-* Training and fine-tuning a model is not possible with theano backend
+* Loading a Bert model is not possible on theano backend yet but the tf version is working and it has been tested
+* Training and fine-tuning a model is not possible with theano backend but works perfectly fine with tensorflow
 * You can use the data generator and task meta data for most of the NLP tasks and you can use them in other frameworks
 * There are some unit tests for both dataset and transformer model (read them if you are not sure about something)
 * Even tough I don't like my keras code, it's readable :)
 * You can use other encoders, like LSTM or BiQRNN for training if you follow the model contract (have the same inputs and outputs as transformer encoder)
-* What will happen when the official code is out?, data reader will still be usable and we might even be able to import those weights into this library (I think we will, cause the actual transformer network is really easy to implement)
+* Why should I use this instead of the official release?, first this one is in Keras and second it has a nice abstraction over token-level and sentence-level NLP tasks which is framework independent
 * Why keras? pytorch version is already out! (BTW you can use this data generator for training and fine-tuning that model too)
 * I strongly advise you to read the tutorial.ipynb (I don't like notebooks so this is a poorly designed notebook, but read it anyway)
 

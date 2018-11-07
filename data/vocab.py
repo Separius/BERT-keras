@@ -3,16 +3,21 @@ from typing import List, Optional
 
 try:
     import sentencepiece as spm
-except ImportError:
+except:
     print('if you want sentencepiece encoder, please install sentencepiece')
 
 try:
     from openai.text_utils import TextEncoder as _OpenAITextEncoder
-except ImportError:
-    print("if you want to use OpenAI's encoder and pretrained model, please install spacy, and ftfy")
+except:
+    print('if you want to use OpenAI\'s encoder and pretrained model, please install spacy, and ftfy')
+
+try:
+    from google.tokenization import FullTokenizer
+except:
+    print('if you want to use Google\'s encoder and pretrained models, please clone the bert submodule')
 
 
-# TOKEN_IDs = {unk=0, vocab={1..vocab_size-1}, specials(pad,bos,del,eos,msk), segments, positions}
+# TOKEN_IDs = {unk=0, vocab={1..vocab_size-1}, specials(pad,bos,del,eos,msk)}
 
 
 class TextEncoder:
@@ -22,10 +27,9 @@ class TextEncoder:
     DEL_OFFSET = 3  # delimiter
     EOS_OFFSET = 4
     SPECIAL_COUNT = 5
-    SGA_OFFSET = 5  # Segment_A
-    SGB_OFFSET = 6  # Segment_B
     NUM_SEGMENTS = 2
-    POS_START_OFFSET = 7
+    BERT_UNUSED_COUNT = 99  # bert pretrained models
+    BERT_SPECIAL_COUNT = 4  # they don't have DEL
 
     def __init__(self, vocab_size: int):
         # NOTE you MUST always put unk at 0, then regular vocab, then special tokens, and then pos
@@ -36,9 +40,6 @@ class TextEncoder:
         self.bos_id = vocab_size + self.BOS_OFFSET
         self.del_id = vocab_size + self.DEL_OFFSET
         self.eos_id = vocab_size + self.EOS_OFFSET
-        self.sga_id = vocab_size + self.SGA_OFFSET
-        self.sgb_id = vocab_size + self.SGB_OFFSET
-        self.pos_start_id = vocab_size + self.POS_START_OFFSET
 
     def __len__(self) -> int:
         return self.vocab_size
@@ -78,3 +79,22 @@ class OpenAITextEncoder(TextEncoder):
 
     def encode(self, sent: str) -> List[int]:
         return self.encoder.encode([sent], verbose=False)[0]
+
+
+class BERTTextEncoder(TextEncoder):
+    def __init__(self, vocab_file: str, do_lower_case: bool = True) -> None:
+        self.tokenizer = FullTokenizer(vocab_file, do_lower_case)
+        super().__init__(len(self.tokenizer.vocab))
+        self.bert_unk_id = self.tokenizer.vocab['[UNK]']
+        self.bert_msk_id = self.tokenizer.vocab['[MASK]']
+
+    def standardize_ids(self, ids: List[int]) -> List[int]:
+        for i in range(len(ids)):
+            if ids[i] == self.bert_unk_id:  # UNK
+                ids[i] = 0
+            else:  # VOCAB
+                ids[i] -= self.bert_msk_id
+        return ids
+
+    def encode(self, sent: str) -> List[int]:
+        return self.standardize_ids(self.tokenizer.convert_tokens_to_ids(self.tokenizer.tokenize(sent)))

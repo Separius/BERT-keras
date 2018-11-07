@@ -29,17 +29,18 @@ def load_openai_transformer(path: str = './openai/model/', use_attn_mask: bool =
     return model
 
 
-def load_google_bert(base_location: str = './google/model/uncased_L-12_H-768_A-12/', use_attn_mask: bool = True,
-                     max_len: int = 512, verbose: bool = False) -> keras.Model:
+def load_google_bert(base_location: str = './google/downloads/multilingual_L-12_H-768_A-12/',
+                     use_attn_mask: bool = True, max_len: int = 512, verbose: bool = False) -> keras.Model:
     bert_config = BertConfig.from_json_file(base_location + 'bert_config.json')
     init_checkpoint = base_location + 'bert_model.ckpt'
     var_names = tf.train.list_variables(init_checkpoint)
     check_point = tf.train.load_checkpoint(init_checkpoint)
+    vocab_size = bert_config.vocab_size - TextEncoder.BERT_SPECIAL_COUNT - TextEncoder.BERT_UNUSED_COUNT
     model = create_transformer(embedding_layer_norm=True, neg_inf=-10000.0, use_attn_mask=use_attn_mask,
-                               vocab_size=bert_config.vocab_size - TextEncoder.SPECIAL_COUNT, accurate_gelu=True,
-                               ln_epsilon=1e-12, max_len=max_len, use_one_embedding_dropout=True,
-                               d_hid=bert_config.intermediate_size, embedding_dim=bert_config.hidden_size,
-                               num_layers=bert_config.num_hidden_layers, num_heads=bert_config.num_attention_heads,
+                               vocab_size=vocab_size, accurate_gelu=True, ln_epsilon=1e-12, max_len=max_len,
+                               use_one_embedding_dropout=True, d_hid=bert_config.intermediate_size,
+                               embedding_dim=bert_config.hidden_size, num_layers=bert_config.num_hidden_layers,
+                               num_heads=bert_config.num_attention_heads,
                                residual_dropout=bert_config.hidden_dropout_prob,
                                attention_dropout=bert_config.attention_probs_dropout_prob)
     if K.backend() == 'tensorflow':
@@ -49,17 +50,15 @@ def load_google_bert(base_location: str = './google/model/uncased_L-12_H-768_A-1
     for var_name, _ in var_names:
         w_id = None
         qkv = None
-        is_pos_embedding = False
         unsqueeze = False
         parts = var_name.split('/')
         first_vars_size = 5
         if parts[1] == 'embeddings':
             n = parts[-1]
-            if n == 'token_type_embeddings':  # TODO handle special_tokens
+            if n == 'token_type_embeddings':
                 w_id = 0
             elif n == 'position_embeddings':
                 w_id = 1
-                is_pos_embedding = True
             elif n == 'word_embeddings':
                 w_id = 2
             elif n == 'gamma':
@@ -113,10 +112,21 @@ def load_google_bert(base_location: str = './google/model/uncased_L-12_H-768_A-1
         if w_id is not None and qkv is None:
             if verbose:
                 print(var_name, ' -> ', model.weights[w_id].name)
-            if is_pos_embedding:
+            if w_id == 1:  # pos embedding
                 weights[w_id][:max_len, :] = check_point.get_tensor(var_name)[:max_len,
                                              :] if not unsqueeze else check_point.get_tensor(var_name)[
                                                                       None, :max_len, :]
+            elif w_id == 2:  # word embedding
+                # ours: unk, [vocab], pad, msk(mask), bos(cls), del(use sep again), eos(sep)
+                # theirs: pad, 99 unused, unk, cls, sep, mask, [vocab]
+                saved = check_point.get_tensor(var_name)  # vocab_size, emb_size
+                weights[w_id][0] = saved[1 + TextEncoder.BERT_UNUSED_COUNT]
+                weights[w_id][1:vocab_size] = saved[-vocab_size + 1:]
+                weights[w_id][vocab_size + TextEncoder.PAD_OFFSET] = saved[0]
+                weights[w_id][vocab_size + TextEncoder.MSK_OFFSET] = saved[4 + TextEncoder.BERT_UNUSED_COUNT]
+                weights[w_id][vocab_size + TextEncoder.BOS_OFFSET] = saved[2 + TextEncoder.BERT_UNUSED_COUNT]
+                weights[w_id][vocab_size + TextEncoder.DEL_OFFSET] = saved[3 + TextEncoder.BERT_UNUSED_COUNT]
+                weights[w_id][vocab_size + TextEncoder.EOS_OFFSET] = saved[3 + TextEncoder.BERT_UNUSED_COUNT]
             else:
                 weights[w_id][:] = check_point.get_tensor(var_name) if not unsqueeze else \
                     check_point.get_tensor(var_name)[

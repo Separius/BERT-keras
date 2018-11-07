@@ -1,16 +1,17 @@
+import unittest
 import numpy as np
 import tensorflow as tf
-from unittest import TestCase
 from transformer.load import load_google_bert
-from google.modeling import BertConfig, BertModel, get_assigment_map_from_checkpoint
+from data.vocab import TextEncoder, BERTTextEncoder
+from google.modeling import BertConfig, BertModel, get_assignment_map_from_checkpoint
 
 
-class TestBert(TestCase):
+class TestBert(unittest.TestCase):
     def __init__(self, method_name: str = 'runTest') -> None:
         super().__init__(methodName=method_name)
 
     def test_same_result(self):
-        base_location = './google/downloads/uncased_L-12_H-768_A-12/'
+        base_location = './google/downloads/multilingual_L-12_H-768_A-12/'
         bert_config = BertConfig.from_json_file(base_location + 'bert_config.json')
         init_checkpoint = base_location + 'bert_model.ckpt'
 
@@ -38,7 +39,7 @@ class TestBert(TestCase):
 
                 tvars = tf.trainable_variables()
                 scaffold_fn = None
-                (assignment_map, _) = get_assigment_map_from_checkpoint(
+                (assignment_map, _) = get_assignment_map_from_checkpoint(
                     tvars, init_checkpoint)
                 tf.train.init_from_checkpoint(init_checkpoint, assignment_map)
 
@@ -55,7 +56,7 @@ class TestBert(TestCase):
 
         batch_size = 8
         seq_len = 5
-        xmb = np.random.randint(0, bert_config.vocab_size, (batch_size, seq_len))
+        xmb = np.random.randint(106, bert_config.vocab_size - 106, (batch_size, seq_len))
         xmb2 = np.random.randint(0, 2, (batch_size, seq_len), dtype=np.int32)
         xmb3 = np.random.randint(0, 2, (batch_size, seq_len), dtype=np.int32)
 
@@ -99,6 +100,9 @@ class TestBert(TestCase):
 
         pos = generate_pos_ids(batch_size, seq_len)
         k_mask = create_attention_mask(xmb2, False, None, None, True)
+        bert_encoder = BERTTextEncoder(base_location + 'vocab.txt')
+        for b in range(len(xmb)):
+            xmb[b] = np.array(bert_encoder.standardize_ids(xmb[b].tolist()))
         k_output = my_model.predict([xmb, xmb3, pos, k_mask])
         max_max = 0
         for i in range(batch_size):
@@ -107,3 +111,7 @@ class TestBert(TestCase):
                 if new_max > max_max:
                     max_max = new_max
         assert max_max < 5e-5, max_max  # TODO reduce the error (I think it's because of the LayerNorm)
+
+
+if __name__ == "__main__":
+    unittest.main()
