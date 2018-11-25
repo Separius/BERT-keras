@@ -1,4 +1,4 @@
-import keras
+import tensorflow.keras as keras
 import numpy as np
 from data.vocab import TextEncoder
 from transformer.layers import LayerNormalization

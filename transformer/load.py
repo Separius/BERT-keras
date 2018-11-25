@@ -1,8 +1,8 @@
 import json
-import keras
+import tensorflow.keras as keras
 import numpy as np
 import tensorflow as tf
-import keras.backend as K
+import tensorflow.keras.backend as K
 from data.vocab import TextEncoder
 from google.modeling import BertConfig
 from transformer.model import create_transformer

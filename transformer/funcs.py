@@ -1,7 +1,7 @@
 import math
 import numpy as np
-import keras.backend as K
-from keras.layers import Dropout
+import tensorflow.keras.backend as K
+from tensorflow.keras.layers import Dropout
 
 
 def shape_list(x):

@@ -1,9 +1,9 @@
-import keras
+import tensorflow.keras as keras
 import numpy as np
-import keras.backend as K
+import tensorflow.keras.backend as K
 from data.vocab import TextEncoder
 from transformer.embedding import Embedding
-from keras.layers import Conv1D, Dropout, Add, Input
+from tensorflow.keras.layers import Conv1D, Dropout, Add, Input
 from transformer.layers import MultiHeadAttention, Gelu, LayerNormalization
 
 

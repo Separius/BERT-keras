@@ -91,7 +91,7 @@ class TestBert(unittest.TestCase):
                                                 predict_batch_size=batch_size)
         tf_result = [r for r in estimator.predict(input_fn)]
 
-        import keras.backend as K
+        import tensorflow.keras.backend as K
 
         K.set_learning_phase(0)
         my_model = load_google_bert(base_location, max_len=seq_len)
