@@ -12,7 +12,7 @@ except:
     print('if you want to use OpenAI\'s encoder and pretrained model, please install spacy, and ftfy')
 
 try:
-    from google.tokenization import FullTokenizer
+    from google_bert.tokenization import FullTokenizer
 except:
     print('if you want to use Google\'s encoder and pretrained models, please clone the bert submodule')
 

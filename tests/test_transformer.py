@@ -1,10 +1,10 @@
 import os
 import uuid
 import json
-import keras
+import tensorflow.keras as keras
 import numpy as np
 from importlib import reload
-from keras import backend as K
+from tensorflow.keras import backend as K
 from data.vocab import TextEncoder
 from unittest import TestCase, SkipTest
 from data.lm_dataset import dummy_lm_generator

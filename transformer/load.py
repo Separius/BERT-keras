@@ -1,10 +1,10 @@
 import json
-import keras
+import tensorflow.keras as keras
 import numpy as np
 import tensorflow as tf
-import keras.backend as K
+import tensorflow.keras.backend as K
 from data.vocab import TextEncoder
-from google.modeling import BertConfig
+from google_bert.modeling import BertConfig
 from transformer.model import create_transformer
 
 
@@ -29,7 +29,7 @@ def load_openai_transformer(path: str = './openai/model/', use_attn_mask: bool =
     return model
 
 
-def load_google_bert(base_location: str = './google/downloads/multilingual_L-12_H-768_A-12/',
+def load_google_bert(base_location: str = './google_bert/downloads/multilingual_L-12_H-768_A-12/',
                      use_attn_mask: bool = True, max_len: int = 512, verbose: bool = False) -> keras.Model:
     bert_config = BertConfig.from_json_file(base_location + 'bert_config.json')
     init_checkpoint = base_location + 'bert_model.ckpt'
