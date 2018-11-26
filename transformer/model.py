@@ -76,11 +76,11 @@ def create_transformer(embedding_dim: int = 768, embedding_dropout: float = 0.1,
     return keras.Model(inputs=inputs, outputs=[x], name='Transformer')
 
 
-def load_bert(base_location: str = './google/model/uncased_L-12_H-768_A-12/', use_attn_mask: bool = True,
+def load_bert(base_location: str = './google_bert/model/uncased_L-12_H-768_A-12/', use_attn_mask: bool = True,
               max_len: int = 512) -> keras.Model:
     print(1)
     import tensorflow as tf
-    from google.modeling import BertConfig
+    from google_bert.modeling import BertConfig
     print(2)
     bert_config = BertConfig.from_json_file(base_location + 'bert_config.json')
     init_checkpoint = base_location + 'bert_model.ckpt'

@@ -3,7 +3,7 @@ import numpy as np
 import tensorflow as tf
 from transformer.load import load_google_bert
 from data.vocab import TextEncoder, BERTTextEncoder
-from google.modeling import BertConfig, BertModel, get_assignment_map_from_checkpoint
+from google_bert.modeling import BertConfig, BertModel, get_assignment_map_from_checkpoint
 
 
 class TestBert(unittest.TestCase):
@@ -11,7 +11,7 @@ class TestBert(unittest.TestCase):
         super().__init__(methodName=method_name)
 
     def test_same_result(self):
-        base_location = './google/downloads/multilingual_L-12_H-768_A-12/'
+        base_location = './google_bert/downloads/multilingual_L-12_H-768_A-12/'
         bert_config = BertConfig.from_json_file(base_location + 'bert_config.json')
         init_checkpoint = base_location + 'bert_model.ckpt'
 
