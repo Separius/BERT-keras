@@ -1,7 +1,9 @@
 # BERT-keras
 Keras implementation of Google BERT(Bidirectional Encoder Representations from Transformers), using pretrained OpenAI Transformer model for initialization!
 
-*Update*: you can know import the [official weights](https://github.com/google-research/bert#pre-trained-models) both the monolingual and multilingual models!  
+*Update*: you can know import the [official weights](https://github.com/google-research/bert#pre-trained-models) both the monolingual and multilingual models! 
+
+*Update*: you can know use TPU for inference via [this colab notebook](https://colab.research.google.com/gist/HighCWu/3a02dc497593f8bbe4785e63be99c0c3/bert-keras-tutorial.ipynb)
 
 ## How to use it?
 ```python
