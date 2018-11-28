@@ -1,7 +1,7 @@
 import math
-import tensorflow.keras.backend as K
-from tensorflow.keras.layers import Layer
-from tensorflow.keras.initializers import Ones, Zeros
+import keras.backend as K
+from keras.layers import Layer
+from keras.initializers import Ones, Zeros
 from transformer.funcs import gelu, multihead_attention
 
 

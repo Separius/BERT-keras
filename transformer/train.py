@@ -1,9 +1,9 @@
 import tensorflow as tf
-import tensorflow.keras as keras
+import keras
 import numpy as np
-import tensorflow.keras.backend as K
+import keras.backend as K
 from typing import List, Generator
-from tensorflow.keras.layers import Dropout, Input, Lambda, TimeDistributed, Dense
+from keras.layers import Dropout, Input, Lambda, TimeDistributed, Dense
 from data.dataset import TaskMetadata, SentenceBatch, create_attention_mask, generate_pos_ids
 
 
@@ -155,35 +155,3 @@ def train_model(base_model: keras.Model, is_causal: bool, tasks_meta_data: List[
         # Compile for TPU model predicting for the first time. Also you can have a new compile for training use after this
         ret_model.compile(finetune_optimizer, loss=pass_through_loss) 
     return ret_model
-
-def tpu_compatible():
-    '''Fit the tpu problems we meet while using keras tpu model'''
-    _version = tf.__version__.split('.')
-    is_correct_version = int(_version[0]) >= 1 and (int(_version[0]) >= 2 or int(_version[1]) >= 13)
-    from tensorflow.contrib.tpu.python.tpu.keras_support import KerasTPUModel
-    def initialize_uninitialized_variables():
-        sess = K.get_session()
-        uninitialized_variables = set([i.decode('ascii') for i in sess.run(tf.report_uninitialized_variables())])
-        init_op = tf.variables_initializer(
-            [v for v in tf.global_variables() if v.name.split(':')[0] in uninitialized_variables]
-        )
-        sess.run(init_op)
-    _tpu_compile = KerasTPUModel.compile
-    def tpu_compile(self,
-                    optimizer,
-                    loss=None,
-                    metrics=None,
-                    loss_weights=None,
-                    sample_weight_mode=None,
-                    weighted_metrics=None,
-                    target_tensors=None,
-                    **kwargs):
-        if not is_correct_version:
-            raise ValueError('You need tensorflow >= 1.3 for better keras tpu support!')
-        _tpu_compile(self, optimizer, loss, metrics, loss_weights,
-                    sample_weight_mode, weighted_metrics,
-                    target_tensors, **kwargs)
-        initialize_uninitialized_variables() # for unknown reason, we should run this after compile
-    KerasTPUModel.compile = tpu_compile
-    
-tpu_compatible()

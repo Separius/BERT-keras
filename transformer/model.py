@@ -1,9 +1,9 @@
-import tensorflow.keras as keras
+import keras
 import numpy as np
-import tensorflow.keras.backend as K
+import keras.backend as K
 from data.vocab import TextEncoder
 from transformer.embedding import Embedding
-from tensorflow.keras.layers import Conv1D, Dropout, Add, Input
+from keras.layers import Conv1D, Dropout, Add, Input
 from transformer.layers import MultiHeadAttention, Gelu, LayerNormalization
 
 
@@ -93,7 +93,7 @@ def load_bert(base_location: str = './google_bert/model/uncased_L-12_H-768_A-12/
                                vocab_size=bert_config.vocab_size - TextEncoder.SPECIAL_COUNT, accurate_gelu=True,
                                ln_epsilon=1e-12, max_len=max_len, use_one_embedding_dropout=True,
                                d_hid=bert_config.intermediate_size, embedding_dim=bert_config.hidden_size,
-                               num_layers=bert_config.hidden_size, num_heads=bert_config.num_attention_heads,
+                               num_layers=bert_config.num_hidden_layers, num_heads=bert_config.num_attention_heads,
                                residual_dropout=bert_config.hidden_dropout_prob,
                                attention_dropout=bert_config.attention_probs_dropout_prob)
     print(6)
