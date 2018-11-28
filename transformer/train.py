@@ -1,8 +1,9 @@
-import tensorflow.keras as keras
+import tensorflow as tf
+import keras
 import numpy as np
-import tensorflow.keras.backend as K
+import keras.backend as K
 from typing import List, Generator
-from tensorflow.keras.layers import Dropout, Input, Lambda, TimeDistributed, Dense
+from keras.layers import Dropout, Input, Lambda, TimeDistributed, Dense
 from data.dataset import TaskMetadata, SentenceBatch, create_attention_mask, generate_pos_ids
 
 
@@ -38,7 +39,7 @@ def load_model(weights_path: str, base_model: keras.Model, tasks_meta_data: List
 def train_model(base_model: keras.Model, is_causal: bool, tasks_meta_data: List[TaskMetadata], pretrain_generator,
                 finetune_generator, pretrain_epochs: int = 1, pretrain_optimizer='adam', pretrain_steps: int = 1000000,
                 pretrain_callbacks=None, finetune_epochs: int = 1, finetune_optimizer='adam',
-                finetune_steps: int = 10000, finetune_callbacks=None, verbose: int = 0):
+                finetune_steps: int = 10000, finetune_callbacks=None, verbose: int = 0, TPUStrategy = None):
     token_input = base_model.inputs[0]
     segment_input = base_model.inputs[1]
     position_input = base_model.inputs[2]
@@ -62,7 +63,7 @@ def train_model(base_model: keras.Model, is_causal: bool, tasks_meta_data: List[
             logits = TimeDistributed(decoder, name=task.name + '_logits_time_distributed')(
                 Dropout(task.dropout)(base_model.outputs[0]))
             task_target = Input(batch_shape=(None, max_len,), dtype='int32', name=task.name + '_target_input')
-            task_mask = Input(batch_shape=(None, max_len), dtype='int8', name=task.name + '_mask_input')
+            task_mask = Input(batch_shape=(None, max_len), dtype='int8' if TPUStrategy is None else 'int32', name=task.name + '_mask_input')
             task_loss = Lambda(lambda x: x[0] * masked_classification_loss(x[1], x[2], x[3]), name=task.name + '_loss')(
                 [task_loss_weight, task_target, logits, task_mask])
         else:
@@ -127,6 +128,16 @@ def train_model(base_model: keras.Model, is_causal: bool, tasks_meta_data: List[
                 _outputs.append(task_nodes[task_name]['loss'])
         _generator = get_generator(pretrain_generator if is_pretrain else finetune_generator, is_pretrain)
         _model = keras.Model(inputs=_inputs, outputs=_outputs)
+        if TPUStrategy is not None:
+            '''
+            Create TPUStrategy like this:
+            tpu_address = 'grpc://' + os.environ['COLAB_TPU_ADDR']
+            TPUStrategy = tf.contrib.tpu.TPUDistributionStrategy(
+                tf.contrib.cluster_resolver.TPUClusterResolver(tpu=tpu_address)
+            )
+            '''
+            _model = tf.contrib.tpu.keras_to_tpu_model(
+                    _model, strategy=TPUStrategy)
         _model.compile(pretrain_optimizer if is_pretrain else finetune_optimizer, loss=pass_through_loss)
         _model.fit_generator(_generator, steps_per_epoch=pretrain_steps if is_pretrain else finetune_steps,
                              verbose=verbose, callbacks=pretrain_callbacks if is_pretrain else finetune_callbacks,
@@ -136,4 +147,11 @@ def train_model(base_model: keras.Model, is_causal: bool, tasks_meta_data: List[
         train_step(True)
     if finetune_generator is not None:
         train_step(False)
-    return keras.Model(inputs=base_model.inputs + sent_level_mask_inputs, outputs=all_logits)
+
+    ret_model = keras.Model(inputs=base_model.inputs + sent_level_mask_inputs, outputs=all_logits)
+    if TPUStrategy is not None:
+        ret_model = tf.contrib.tpu.keras_to_tpu_model(
+                    ret_model, strategy=TPUStrategy)
+        # Compile for TPU model predicting for the first time. Also you can have a new compile for training use after this
+        ret_model.compile(finetune_optimizer, loss=pass_through_loss) 
+    return ret_model
