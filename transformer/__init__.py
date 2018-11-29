@@ -1,7 +1,13 @@
 '''This file is for compatibility.'''
 
+import sys
+
 def tpu_compatible():
     '''Fit the tpu problems we meet while using keras tpu model'''
+    if not hasattr(tpu_compatible, 'once'):
+        tpu_compatible.once = True
+    else:
+        return
     import tensorflow as tf
     import tensorflow.keras.backend as K
     _version = tf.__version__.split('.')
@@ -40,18 +46,18 @@ def replace_keras_to_tf_keras():
     import keras.backend as K
     K.tf = tf
 
-import sys
+def clean_keras_module():
+    modules = [i for i in sys.modules.keys()]
+    for i in modules:
+        if i.split('.')[0]=='keras':
+            del sys.modules[i]
 
-try:
-    import keras
-except ImportError:
-    replace_keras_to_tf_keras()
-else:
-    if keras.backend.backend() == 'tensorflow':
-        modules = [i for i in sys.modules.keys()]
-        for i in modules:
-            if i.split('.')[0]=='keras':
-                del sys.modules[i]
+def refresh_keras_backend(use_tpu=True):
+    clean_keras_module()
+    import keras.backend as K
+    if use_tpu and K.backend()!='theano':
         replace_keras_to_tf_keras()
+        import keras.backend as K
+    return K
 
-sys.modules['transformer.keras'] = keras
+refresh_keras_backend()
