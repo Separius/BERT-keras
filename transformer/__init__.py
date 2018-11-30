@@ -56,6 +56,7 @@ def refresh_keras_backend(use_tpu=True):
     clean_keras_module()
     import keras.backend as K
     if use_tpu and K.backend()!='theano':
+        clean_keras_module()
         replace_keras_to_tf_keras()
         import keras.backend as K
     return K
