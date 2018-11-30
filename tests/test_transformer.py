@@ -1,7 +1,11 @@
 import os
 import uuid
 import json
-import transformer.keras as keras
+
+from transformer import refresh_keras_backend
+refresh_keras_backend(use_tpu=False) # tpu mode doesn't support switch backend to theano
+
+import keras
 import numpy as np
 from importlib import reload
 from keras import backend as K
@@ -16,6 +20,7 @@ from data.dataset import create_attention_mask, TaskMetadata, TaskWeightSchedule
 
 
 def set_keras_backend(backend):
+    global K
     if K.backend() != backend:
         os.environ['KERAS_BACKEND'] = backend
         reload(K)

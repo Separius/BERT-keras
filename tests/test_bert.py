@@ -1,5 +1,9 @@
 import unittest
 import numpy as np
+
+from transformer import refresh_keras_backend
+refresh_keras_backend(use_tpu=False) # there are too many settings to use tpu on tensorflow model, so using gpu for the test may be great
+
 import tensorflow as tf
 from transformer.load import load_google_bert
 from data.vocab import TextEncoder, BERTTextEncoder
@@ -91,7 +95,7 @@ class TestBert(unittest.TestCase):
                                                 predict_batch_size=batch_size)
         tf_result = [r for r in estimator.predict(input_fn)]
 
-        import tensorflow.keras.backend as K
+        import keras.backend as K
 
         K.set_learning_phase(0)
         my_model = load_google_bert(base_location, max_len=seq_len)
