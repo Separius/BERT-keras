@@ -115,7 +115,7 @@ def _get_lm_generator_single(text_corpus_address: str, text_encoder: TextEncoder
             return Sentence(
                 [text_encoder.bos_id] + sent.tokens + [text_encoder.eos_id],
                 [True] + sent.padding_mask + [True],
-                [0] * len(sent.tokens),
+                [0] * (len(sent.tokens) + 2),
                 {'lm': TokenTaskData([0] + lm.target + [0], [False] + lm.target_mask + [False])},
                 {}
             )
