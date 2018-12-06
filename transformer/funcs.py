@@ -29,7 +29,7 @@ def merge_heads(x):
     return K.reshape(new_x, new_x_shape)
 
 
-# q,v are B, H, L, C//H ; k is B, H, C//H, L ; mask is B, 1, L, L
+# q and v are B, H, L, C//H ; k is B, H, C//H, L ; mask is B, 1, L, L
 def scaled_dot_product_attention_tf(q, k, v, attn_mask, attention_dropout: float, neg_inf: float):
     w = K.batch_dot(q, k)  # w is B, H, L, L
     w = w / K.sqrt(K.cast(shape_list(v)[-1], K.floatx()))

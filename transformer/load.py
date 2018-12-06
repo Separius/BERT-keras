@@ -37,7 +37,7 @@ def load_google_bert(base_location: str = './google_bert/downloads/multilingual_
     check_point = tf.train.load_checkpoint(init_checkpoint)
     vocab_size = bert_config.vocab_size - TextEncoder.BERT_SPECIAL_COUNT - TextEncoder.BERT_UNUSED_COUNT
     model = create_transformer(embedding_layer_norm=True, neg_inf=-10000.0, use_attn_mask=use_attn_mask,
-                               vocab_size=vocab_size, accurate_gelu=True, ln_epsilon=1e-12, max_len=max_len,
+                               vocab_size=vocab_size, accurate_gelu=True, layer_norm_epsilon=1e-12, max_len=max_len,
                                use_one_embedding_dropout=True, d_hid=bert_config.intermediate_size,
                                embedding_dim=bert_config.hidden_size, num_layers=bert_config.num_hidden_layers,
                                num_heads=bert_config.num_attention_heads,
@@ -120,7 +120,8 @@ def load_google_bert(base_location: str = './google_bert/downloads/multilingual_
                 # ours: unk, [vocab], pad, msk(mask), bos(cls), del(use sep again), eos(sep)
                 # theirs: pad, 99 unused, unk, cls, sep, mask, [vocab]
                 saved = check_point.get_tensor(var_name)  # vocab_size, emb_size
-                weights[w_id][0] = saved[1 + TextEncoder.BERT_UNUSED_COUNT]
+                # weights[our_position] = saved[their_position]
+                weights[w_id][0] = saved[1 + TextEncoder.BERT_UNUSED_COUNT]  # unk
                 weights[w_id][1:vocab_size] = saved[-vocab_size + 1:]
                 weights[w_id][vocab_size + TextEncoder.PAD_OFFSET] = saved[0]
                 weights[w_id][vocab_size + TextEncoder.MSK_OFFSET] = saved[4 + TextEncoder.BERT_UNUSED_COUNT]

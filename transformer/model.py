@@ -1,5 +1,4 @@
 import keras
-import numpy as np
 import keras.backend as K
 from data.vocab import TextEncoder
 from transformer.embedding import Embedding
@@ -8,8 +7,8 @@ from transformer.layers import MultiHeadAttention, Gelu, LayerNormalization
 
 
 class MultiHeadSelfAttention:
-    def __init__(self, n_state: int, n_head: int, attention_dropout: float, use_attn_mask: bool, layer_id: int,
-                 neg_inf: float) -> None:
+    def __init__(self, n_state: int, n_head: int, attention_dropout: float,
+                 use_attn_mask: bool, layer_id: int, neg_inf: float) -> None:
         assert n_state % n_head == 0
         self.c_attn = Conv1D(3 * n_state, 1, name='layer_{}/c_attn'.format(layer_id))
         self.attn = MultiHeadAttention(n_head, n_state, attention_dropout, use_attn_mask,
@@ -52,13 +51,12 @@ class EncoderLayer:
         return self.ln2(self.add2([n, self.drop2(f)]))
 
 
-def create_transformer(embedding_dim: int = 768, embedding_dropout: float = 0.1,
-                       vocab_size: int = 30000, max_len: int = 512,
-                       trainable_pos_embedding: bool = True, num_heads: int = 12, num_layers: int = 12,
-                       attention_dropout: float = 0.1, use_one_embedding_dropout: bool = False,
-                       d_hid: int = 768 * 4, residual_dropout: float = 0.1,
-                       use_attn_mask: bool = True, embedding_layer_norm: bool = False,
-                       neg_inf: float = -1e9, ln_epsilon: float = 1e-5, accurate_gelu: bool = False) -> keras.Model:
+def create_transformer(embedding_dim: int = 768, embedding_dropout: float = 0.1, vocab_size: int = 30000,
+                       max_len: int = 512, trainable_pos_embedding: bool = True, num_heads: int = 12,
+                       num_layers: int = 12, attention_dropout: float = 0.1, use_one_embedding_dropout: bool = False,
+                       d_hid: int = 768 * 4, residual_dropout: float = 0.1, use_attn_mask: bool = True,
+                       embedding_layer_norm: bool = False, neg_inf: float = -1e9, layer_norm_epsilon: float = 1e-5,
+                       accurate_gelu: bool = False) -> keras.Model:
     vocab_size += TextEncoder.SPECIAL_COUNT
     tokens = Input(batch_shape=(None, max_len), name='token_input', dtype='int32')
     segment_ids = Input(batch_shape=(None, max_len), name='segment_input', dtype='int32')
@@ -67,127 +65,11 @@ def create_transformer(embedding_dim: int = 768, embedding_dropout: float = 0.1,
                       dtype=K.floatx()) if use_attn_mask else None
     inputs = [tokens, segment_ids, pos_ids]
     embedding_layer = Embedding(embedding_dim, embedding_dropout, vocab_size, max_len, trainable_pos_embedding,
-                                use_one_embedding_dropout, embedding_layer_norm, ln_epsilon)
+                                use_one_embedding_dropout, embedding_layer_norm, layer_norm_epsilon)
     x = embedding_layer(inputs)
     for i in range(num_layers):
         x = EncoderLayer(embedding_dim, num_heads, d_hid, residual_dropout,
-                         attention_dropout, use_attn_mask, i, neg_inf, ln_epsilon, accurate_gelu)(x, attn_mask)
-    inputs = inputs + ([attn_mask] if use_attn_mask else [])
+                         attention_dropout, use_attn_mask, i, neg_inf, layer_norm_epsilon, accurate_gelu)(x, attn_mask)
+    if use_attn_mask:
+        inputs.append(attn_mask)
     return keras.Model(inputs=inputs, outputs=[x], name='Transformer')
-
-
-def load_bert(base_location: str = './google_bert/model/uncased_L-12_H-768_A-12/', use_attn_mask: bool = True,
-              max_len: int = 512) -> keras.Model:
-    print(1)
-    import tensorflow as tf
-    from google_bert.modeling import BertConfig
-    print(2)
-    bert_config = BertConfig.from_json_file(base_location + 'bert_config.json')
-    init_checkpoint = base_location + 'bert_model.ckpt'
-    print(3)
-    var_names = tf.train.list_variables(init_checkpoint)
-    print(4)
-    check_point = tf.train.load_checkpoint(init_checkpoint)
-    print(5)
-    model = create_transformer(embedding_layer_norm=True, neg_inf=-10000.0, use_attn_mask=use_attn_mask,
-                               vocab_size=bert_config.vocab_size - TextEncoder.SPECIAL_COUNT, accurate_gelu=True,
-                               ln_epsilon=1e-12, max_len=max_len, use_one_embedding_dropout=True,
-                               d_hid=bert_config.intermediate_size, embedding_dim=bert_config.hidden_size,
-                               num_layers=bert_config.num_hidden_layers, num_heads=bert_config.num_attention_heads,
-                               residual_dropout=bert_config.hidden_dropout_prob,
-                               attention_dropout=bert_config.attention_probs_dropout_prob)
-    print(6)
-    if K.backend() == 'tensorflow':
-        weights = [np.zeros(w.shape) for w in model.weights]
-    else:
-        weights = [np.zeros(w.get_value().shape) for w in model.weights]
-    for var_name, _ in var_names:
-        w_id = None
-        qkv = None
-        is_pos_embedding = False
-        unsqueeze = False
-        parts = var_name.split('/')
-        first_vars_size = 5
-        if parts[1] == 'embeddings':
-            n = parts[-1]
-            if n == 'token_type_embeddings':  # TODO handle special_tokens
-                w_id = 0
-            elif n == 'position_embeddings':
-                w_id = 1
-                is_pos_embedding = True
-            elif n == 'word_embeddings':
-                w_id = 2
-            elif n == 'gamma':
-                w_id = 3
-            elif n == 'beta':
-                w_id = 4
-            else:
-                raise ValueError()
-        elif parts[2].startswith('layer_'):
-            layer_number = int(parts[2][len('layer_'):])
-            if parts[3] == 'attention':
-                if parts[-1] == 'beta':
-                    w_id = first_vars_size + layer_number * 12 + 5
-                elif parts[-1] == 'gamma':
-                    w_id = first_vars_size + layer_number * 12 + 4
-                elif parts[-2] == 'dense':
-                    if parts[-1] == 'bias':
-                        w_id = first_vars_size + layer_number * 12 + 3
-                    elif parts[-1] == 'kernel':
-                        w_id = first_vars_size + layer_number * 12 + 2
-                        unsqueeze = True
-                    else:
-                        raise ValueError()
-                elif parts[-2] == 'key' or parts[-2] == 'query' or parts[-2] == 'value':
-                    w_id = first_vars_size + layer_number * 12 + (0 if parts[-1] == 'kernel' else 1)
-                    unsqueeze = parts[-1] == 'kernel'
-                    qkv = parts[-2][0]
-                else:
-                    raise ValueError()
-            elif parts[3] == 'intermediate':
-                if parts[-1] == 'bias':
-                    w_id = first_vars_size + layer_number * 12 + 7
-                elif parts[-1] == 'kernel':
-                    w_id = first_vars_size + layer_number * 12 + 6
-                    unsqueeze = True
-                else:
-                    raise ValueError()
-            elif parts[3] == 'output':
-                if parts[-1] == 'beta':
-                    w_id = first_vars_size + layer_number * 12 + 11
-                elif parts[-1] == 'gamma':
-                    w_id = first_vars_size + layer_number * 12 + 10
-                elif parts[-1] == 'bias':
-                    w_id = first_vars_size + layer_number * 12 + 9
-                elif parts[-1] == 'kernel':
-                    w_id = first_vars_size + layer_number * 12 + 8
-                    unsqueeze = True
-                else:
-                    raise ValueError()
-
-        if w_id is not None and qkv is None:
-            print(var_name, ' -> ', model.weights[w_id].name)
-            if is_pos_embedding:
-                weights[w_id][:max_len, :] = check_point.get_tensor(var_name)[:max_len,
-                                             :] if not unsqueeze else check_point.get_tensor(var_name)[
-                                                                      None, :max_len, :]
-            else:
-                weights[w_id][:] = check_point.get_tensor(var_name) if not unsqueeze else \
-                    check_point.get_tensor(var_name)[
-                        None, ...]
-        elif w_id is not None:
-            print(var_name, ' -> ', model.weights[w_id].name, '::', qkv)
-            p = {'q': 0, 'k': 1, 'v': 2}[qkv]
-            if weights[w_id].ndim == 3:
-                dim_size = weights[w_id].shape[1]
-                weights[w_id][0, :, p * dim_size:(p + 1) * dim_size] = check_point.get_tensor(
-                    var_name) if not unsqueeze else \
-                    check_point.get_tensor(var_name)[
-                        None, ...]
-            else:
-                dim_size = weights[w_id].shape[0] // 3
-                weights[w_id][p * dim_size:(p + 1) * dim_size] = check_point.get_tensor(var_name)
-        else:
-            print('not mapped: ', var_name)  # TODO pooler, cls/predictions, cls/seq_relationship
-    model.set_weights(weights)
-    return model

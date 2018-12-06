@@ -13,10 +13,8 @@ def lm_generator(text_corpus_address: str, text_encoder: TextEncoder, keep_prob:
                  max_len: Optional[int] = 512, file_jump_prob: float = 0.1, mismatch_prob: float = 0.5,
                  num_file_pointers: int = 8, is_causal: bool = False, use_single_sentence: bool = False,
                  batch_size: int = 256) -> Generator[SentenceBatch, None, None]:
-    if not (0.0 <= mask_prob <= 1.0 and
-            0.0 <= rand_prob <= 1.0 and
-            0.0 <= keep_prob <= 1.0 and
-            0.0 <= file_jump_prob <= 1.0):
+    if not (0.0 <= mask_prob <= 1.0 and 0.0 <= rand_prob <= 1.0 and
+            0.0 <= keep_prob <= 1.0 and 0.0 <= file_jump_prob <= 1.0):
         raise ValueError('all probablities should be between zero and one')
     if mask_prob + rand_prob + keep_prob > 1.0:
         raise ValueError('sum of mask, rand and keep probablities should be less than 1.0')

@@ -17,7 +17,7 @@ def _get_pos_encoding_matrix(max_len: int, d_emb: int) -> np.array:
 class Embedding(keras.layers.Layer):
     def __init__(self, output_dim: int = 768, dropout: float = 0.1, vocab_size: int = 30000 + TextEncoder.SPECIAL_COUNT,
                  max_len: int = 512, trainable_pos_embedding: bool = True, use_one_dropout: bool = False,
-                 use_embedding_layer_norm: bool = False, ln_epsilon: float = 1e-5, **kwargs):
+                 use_embedding_layer_norm: bool = False, layer_norm_epsilon: float = 1e-5, **kwargs):
         super().__init__(**kwargs)
         self.max_len = max_len
         self.use_one_dropout = use_one_dropout
@@ -39,10 +39,10 @@ class Embedding(keras.layers.Layer):
         self.add_embeddings = keras.layers.Add(name='AddEmbeddings')
         self.use_embedding_layer_norm = use_embedding_layer_norm
         if self.use_embedding_layer_norm:
-            self.embedding_layer_norm = LayerNormalization(ln_epsilon)
+            self.embedding_layer_norm = LayerNormalization(layer_norm_epsilon)
         else:
             self.embedding_layer_norm = None
-        self.ln_epsilon = ln_epsilon
+        self.layer_norm_epsilon = layer_norm_epsilon
 
     def compute_output_shape(self, input_shape):
         return input_shape[0][0], input_shape[0][1], self.output_dim
@@ -56,7 +56,7 @@ class Embedding(keras.layers.Layer):
             'vocab_size': self.vocab_size,
             'trainable_pos_embedding': self.trainable_pos_embedding,
             'embedding_layer_norm': self.use_embedding_layer_norm,
-            'ln_epsilon': self.ln_epsilon
+            'layer_norm_epsilon': self.layer_norm_epsilon
         }
         base_config = super().get_config()
         return dict(list(base_config.items()) + list(config.items()))
