@@ -1,3 +1,5 @@
+**Status:** Archive (code is provided as-is, no updates expected)
+
 # BERT-keras
 Keras implementation of Google BERT(Bidirectional Encoder Representations from Transformers) and OpenAI's Transformer LM capable of loading pretrained models with a finetuning API. 
 
